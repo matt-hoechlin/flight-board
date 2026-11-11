@@ -1,7 +1,14 @@
 // =====================================================================
-//  Flight Board v0.9.42
+//  Flight Board v0.9.43
 //  Elecrow CrowPanel ESP32-S3 5.79" e-paper (792 x 272, 2x SSD1683)
 //  (c) 2026 Matt Hoechlin
+//
+//  New in v0.9.43:
+//    - Better Routes > How much FlightAware: Light (~$5 a month: planes taking off, landing or overhead, spread over
+//      the month) / Full (every plane that needs a route, all the time, safety stop at 10,000 lookups ~ $50) /
+//      Custom (the Which flights and Monthly limit choices, as before). Boards that were on the old defaults start on
+//      Light; anything else starts on Custom with the same settings.
+//    - An overhead alert plane is looked up even when the month's lookups are being paced (still within the limit).
 //
 //  New in v0.9.42:
 //    - The sketch is now split into tabs (01_helpers.ino ... 22_setup_loop.ino) next to this file. No code
@@ -557,9 +564,9 @@
 #include "bg_image.h"        // page background (Reno sectional chart)
 #include "web_fonts.h"       // fonts for the web pages
 
-const char* FW_VERSION = "0.9.42";        // shown on the boot screens
+const char* FW_VERSION = "0.9.43";        // shown on the boot screens
 // Marks a .bin file as Flight Board firmware: Firmware Update looks for it. Keep the version the same as above.
-const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.42;";
+const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.43;";
 const int  FW_MARK_PRE = 15;              // length of "FLIGHTBOARD-FW:"
 
 // ================= SETTINGS =================
@@ -598,7 +605,7 @@ const int TZ_DEFAULT     = 4;             // Pacific
 int tzIndex = TZ_DEFAULT;
 // (tzRule() is further down: the Arduino IDE puts its made-up function declarations
 //  above the first function in the file, so no function may come before the structs)
-const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.42; +https://volarydynamics.com)";
+const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.43; +https://volarydynamics.com)";
 // ============================================
 
 // ---------- CrowPanel 5.79" pins ----------
@@ -799,8 +806,11 @@ void faMemoClear();
 void formatAlt(long a, char* buf, size_t len);
 void rlogText(String& s);
 char faKey[72] = "";                         // from Settings ("fak"); never sent back to any page
-int  faLimitI = 1;                           // "fal": 0 = 250, 1 = 1,000, 2 = no limit
-const int FA_LIMITS[3] = { 250, 1000, 0 };
+int  faLimitI = 1;                           // in use: 0 = 250, 1 = 1,000, 2 = no limit, 3 = Full (safety stop, no pacing)
+const int FA_LIMITS[4] = { 250, 1000, 0, 10000 };
+int  faPlanI = 0;                            // v0.9.43 "fap": 0 Light, 1 Full, 2 Custom
+int  faWhichC = 1, faLimitC = 1;             // v0.9.43: the Custom choices ("faw", "fal")
+char faUrgentCs[9] = ""; uint32_t faUrgentMs = 0;   // v0.9.43: the overhead alert plane (skips the pacing)
 const float FA_COST = 0.005f;                // dollars per lookup, list price
 const int FA_PER_MIN = 8;                    // v0.9.37: Personal plan allows 10 a minute; keep under it
 unsigned long faTimes[FA_PER_MIN] = { 0 };   // when the last few lookups were made

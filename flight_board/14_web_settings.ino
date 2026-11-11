@@ -112,7 +112,7 @@ void handleSettings() {
            "#c-routes .use{margin-bottom:0;padding-top:8px;border-top:1px solid rgba(128,140,155,.25)}"
            "#c-routes .rg2{margin-top:6px;padding-top:4px;border-top:1px solid rgba(128,140,155,.25)}#c-routes .hint.fw{margin-bottom:8px}"
            "#c-routes .rmk{display:flex;align-items:center;gap:8px;margin:6px 0 0;font:400 14px/1.4 IS,system-ui,sans-serif;letter-spacing:0;text-transform:none}"
-           "#c-routes .rmk input{width:auto;margin:0}"
+           "#c-routes .rmk input{width:auto;margin:0}#c-routes .dimx{opacity:.65}#fapx{margin-top:4px}"
            ".s4 .seg span{white-space:nowrap}@media(max-width:600px){.s4 .seg{display:grid;grid-template-columns:1fr 1fr}"
            ".s4 .seg label:nth-child(-n+2) span{border-bottom:1px solid #999}.s4 .seg label:nth-child(3) span{border-left:0}"
            "html.dark .s4 .seg label:nth-child(-n+2) span{border-bottom-color:#3b4756}"
@@ -145,25 +145,31 @@ void handleSettings() {
     { const char* t[] = { "Off", "Home only", "Home + airports", "All places" };
       b += F("<div class=s4>"); b += segButtons("fau", faUseI, t, 4, nullptr, nullptr); b += F("</div>"); }   // v0.9.39: 2 x 2 on phones
     b += F("<p class=hint>Airports see many more flights and use far more lookups. Off pauses it and keeps your key.</p>");
-    b += F("</div><div><label>Monthly limit</label>");
-    { const char* t[] = { "250", "1,000", "No limit" }; b += segButtons("fal", faLimitI, t, 3, nullptr, nullptr); }
-    b += F("<p class=hint>1,000 lookups is ~$5 a month at today&rsquo;s price. Lookups are spread over the month; at the limit the board goes back to free routes until next month.</p>");
-    b += F("<label>Route log (for testing)</label>");              // v0.9.38
-    { const char* t[] = { "On", "Off" }; b += segButtons("rlo", rlogOn ? 0 : 1, t, 2, nullptr, nullptr); }
-    b += F("<p class=hint>Lists the board&rsquo;s last route decisions in the Diagnostic Log. Memory only; no positions.</p></div></div>");
-    // v0.9.41: Which flights and the details switch get their own row, side by side under the first two columns
-    // v0.9.40: Which flights, and a lookup when a plane's details are opened
-    b += F("<div class='rg rg2'><div><label>Which flights</label><div class=s3v>");
-    { const char* t[] = { "All flights", "Low + overhead", "Low only" }; b += segButtons("faw", faWhichI, t, 3, nullptr, nullptr); }
-    b += "</div><p class='hint fw'><b>Low:</b> below <span id=flo>" + String(unitsMode == 2 ? "5,500 m" : "18,000 ft") + "</span>, or climbing or descending. "
+    // v0.9.43: one choice, How much FlightAware (Light / Full / Custom); Custom shows the two older dials
+    b += F("</div><div><label>How much FlightAware</label>");
+    { const char* t[] = { "Light", "Full", "Custom" }; b += segButtons("fap", faPlanI, t, 3, nullptr, "fapc"); }
+    b += F("<p class=hint id=fapt></p><div id=fapx>");
+    b += F("<label>Which flights</label><div class=s3v>");
+    { const char* t[] = { "All flights", "Low + overhead", "Low only" }; b += segButtons("faw", faWhichC, t, 3, nullptr, nullptr); }
+    b += F("</div>");
+    b += "<p class='hint fw'><b>Low:</b> below <span id=flo>" + String(unitsMode == 2 ? "5,500 m" : "18,000 ft") + "</span>, or climbing or descending. "
          "The board can&rsquo;t know where a plane is going until it asks, but near home a low plane is nearly always taking off or landing.</p>"
          "<p class='hint fw'><b>Overhead:</b> within your Overhead Alert distance (<span id=fod>" + String(ALERT_DIST_LABEL[unitsMode][alertDistI]) + "</span>)<span id=foh>"
          + (ALERT_BELOW_FT[unitsMode][alertBelowI] ? " and below its height (" + String(ALERT_BELOW_LABEL[unitsMode][alertBelowI]) + " " + String(UN.alt) + ")" : String(", at any height"))
          + "</span>.<span id=foa" + String(alertOn ? " style=display:none" : "") + "> The alert itself is off; these numbers still apply.</span></p>"
          "<p class=hint>Other flights keep the free route if it fits, or stay blank.</p>";
-    b += F("</div><div><label>When I open a plane&rsquo;s details</label>");
+    b += F("<label>Monthly limit</label>");
+    { const char* t[] = { "250", "1,000", "No limit" }; b += segButtons("fal", faLimitC, t, 3, nullptr, nullptr); }
+    b += F("<p class=hint>1,000 lookups is ~$5 a month at today&rsquo;s price, spread over the month. At the limit the board goes back to free routes until next month.</p></div></div></div>");
+    b += F("<div class='rg rg2'><div><label>When I open a plane&rsquo;s details</label>");
     { const char* t[] = { "Look it up", "Don&rsquo;t" }; b += segButtons("fad", faDetailI ? 0 : 1, t, 2, nullptr, nullptr); }   // 0 = look it up
-    b += F("<p class=hint>One lookup when you open a plane the board hasn&rsquo;t already asked about, so the plane you&rsquo;re curious about gets a real route.</p>"
+    b += F("<p class=hint>Looks up that plane right away.</p></div><div><label>Route log (for testing)</label>");   // v0.9.38
+    { const char* t[] = { "On", "Off" }; b += segButtons("rlo", rlogOn ? 0 : 1, t, 2, nullptr, nullptr); }
+    b += F("<p class=hint>Route decisions in the Diagnostic Log. Memory only; no positions.</p></div></div>"
+           "<script>var FAPT=['<b>Light</b> &middot; ~$5/mo<br>Planes taking off, landing or overhead.<br><span class=dimx>Spread over the month.</span>',"
+           "'<b>Full</b> &middot; ~$15&ndash;25/mo<br>Every plane that needs a route, all the time.<br><span class=dimx>Safety stop at ~$50 a month.</span>',''];"
+           "function fapc(v){fapt.innerHTML=FAPT[v];fapt.style.display=v==2?'none':'';fapx.style.display=v==2?'':'none'}"
+           "addEventListener('DOMContentLoaded',function(){var e=document.querySelector('input[name=fap]:checked');fapc(e?+e.value:0)});</script>"
            "<script>function fawh(){var d=document.querySelector('input[name=od]:checked'),h=document.querySelector('input[name=oh]:checked'),"
            "o=document.querySelector('input[name=oa]:checked'),u=document.querySelector('input[name=units]:checked');if(!d||!h)return;"
            "fod.textContent=d.nextElementSibling.textContent;foh.textContent=+h.value==4?', at any height':' and below its height ('+h.nextElementSibling.textContent+' '+ua.textContent+')';"
@@ -390,6 +396,7 @@ void saveSettings() {
   if (server.hasArg("ow"))    pr.putInt("ow", constrain((int)server.arg("ow").toInt(), 0, 2));
   if (server.hasArg("fal"))   pr.putInt("fal", constrain((int)server.arg("fal").toInt(), 0, 2));   // v0.9.35: Better Routes
   if (server.hasArg("fau"))   pr.putInt("fau", constrain((int)server.arg("fau").toInt(), 0, 3));   // v0.9.38
+  if (server.hasArg("fap"))   pr.putInt("fap", constrain((int)server.arg("fap").toInt(), 0, 2));   // v0.9.43
   if (server.hasArg("faw"))   pr.putInt("faw", constrain((int)server.arg("faw").toInt(), 0, 2));   // v0.9.40
   if (server.hasArg("fad"))   pr.putInt("fad", server.arg("fad") == "0" ? 1 : 0);   // button 0 = Look it up
   if (server.hasArg("rlo"))   pr.putInt("rlo", constrain((int)server.arg("rlo").toInt(), 0, 1));

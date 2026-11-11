@@ -14,11 +14,11 @@ void faLoadCounts() {
 }
 void faRollMonth() { uint32_t m = thisMonth(); if (m && m != faMonth) { faMonth = m; faCount = 0; faFixed = 0; faSaveCounts(); } }
 bool faKeyRefused() { return faLastErr == 401 || faLastErr == 403; }
-bool faLimitReached() { int lim = FA_LIMITS[constrain(faLimitI, 0, 2)]; return lim && faCount >= (uint32_t)lim; }
+bool faLimitReached() { int lim = FA_LIMITS[constrain(faLimitI, 0, 3)]; return lim && faCount >= (uint32_t)lim; }
 // v0.9.37: spread the monthly limit over the month: 10% up front, the rest as the days go by
 bool faPaceOk() {
-  int lim = FA_LIMITS[constrain(faLimitI, 0, 2)];
-  if (!lim) return true;
+  int lim = FA_LIMITS[constrain(faLimitI, 0, 3)];
+  if (!lim || faLimitI == 3) return true;                       // v0.9.43: Full is never paced
   struct tm t; if (!getLocalTime(&t, 0)) return true;              // no clock yet: the plain limit still applies
   static const int DIM[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
   int days = DIM[t.tm_mon] + ((t.tm_mon == 1 && (t.tm_year + 1900) % 4 == 0) ? 1 : 0);
@@ -296,6 +296,7 @@ void setLeg(Plane& p, const RouteCache* rc) {
   if (rc->fromFa && fitsFree) copyStr(rlFa, sizeof rlFa, "route from FlightAware (kept)");
   // v0.9.40: details just opened for this plane: ask FlightAware even if the free route fits
   bool user = faAskCs[0] && !strcmp(faAskCs, p.callsign) && millis() - faAskMs < 120000UL && !rc->fromFa;
+  bool urgent = faUrgentCs[0] && !strcmp(faUrgentCs, p.callsign) && millis() - faUrgentMs < 300000UL;   // v0.9.43: overhead alert
   if (user) faAskCs[0] = 0;
   if (!fitsFree || (user && !w->faTried)) {               // v0.9.34: a route that doesn't match the plane is never shown
     bool fixed = false;
@@ -315,8 +316,8 @@ void setLeg(Plane& p, const RouteCache* rc) {
         copyStr(rlFa, sizeof rlFa, "retry in a few minutes");
       } else ask = true;
       if (ask) {
-        const char* why = faWhyNot(user);
-        if (!why && !user && !again) why = faFlightWhyNot(p);     // v0.9.40: Which flights
+        const char* why = faWhyNot(user || urgent);
+        if (!why && !user && !urgent && !again) why = faFlightWhyNot(p);     // v0.9.40: Which flights
         if (why) snprintf(rlFa, sizeof rlFa, "not asked: %s", why);
         else {
           w->faTried = true;
@@ -324,7 +325,7 @@ void setLeg(Plane& p, const RouteCache* rc) {
           int r = faRouteR(p.callsign, fa);
           FaMemo* mm = faMemoPut(p.callsign);
           if (mm) { mm->tries++; mm->ms = now; }
-          const char* how = again ? "asked again" : retry ? "retry" : user ? "details opened" : "asked";
+          const char* how = again ? "asked again" : retry ? "retry" : user ? "details opened" : urgent ? "overhead alert" : "asked";
           if (r == FA_R_OK) {
             if (mm) { mm->state = FAM_ROUTE; copyStr(mm->from, sizeof mm->from, fa.code[0]); copyStr(mm->to, sizeof mm->to, fa.code[fa.n - 1]); }
             if (fitLeg(fa, p, a, b)) {

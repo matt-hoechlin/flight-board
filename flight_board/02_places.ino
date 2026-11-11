@@ -168,11 +168,15 @@ void loadDisplaySettings(Preferences& p) {
       for (int i = 0; i < CACHE_SIZE; i++) routeCache[i].faTried = false;
       faMemoClear();                                             // v0.9.38: a new key starts fresh
     } }
-  faLimitI = constrain(p.getInt("fal", 1), 0, 2);
   { int u = constrain(p.getInt("fau", 1), 0, 3);                 // v0.9.38: where FlightAware is used
     if (u != faUseI) for (int i = 0; i < CACHE_SIZE; i++) routeCache[i].faTried = false;
     faUseI = u; }
-  faWhichI  = constrain(p.getInt("faw", 1), 0, 2);               // v0.9.40
+  faWhichC  = constrain(p.getInt("faw", 1), 0, 2);               // v0.9.40
+  faLimitC  = constrain(p.getInt("fal", 1), 0, 2);
+  faPlanI   = p.isKey("fap") ? constrain(p.getInt("fap", 0), 0, 2)            // v0.9.43: one choice
+                             : (faWhichC == 1 && faLimitC == 1 ? 0 : 2);       // old defaults = Light, anything else = Custom
+  faWhichI  = faPlanI == 0 ? 1 : faPlanI == 1 ? 0 : faWhichC;
+  faLimitI  = faPlanI == 0 ? 1 : faPlanI == 1 ? 3 : faLimitC;
   faDetailI = constrain(p.getInt("fad", 1), 0, 1);
   rlogOn = p.getInt("rlo", 0) == 0;
 }

@@ -288,15 +288,16 @@ String diagText() {
   else if (!faUseI) s += "  FlightAware (Better Routes): paused (Use FlightAware for: Off)\n";
   else {
     faLoadCounts();
-    int lim = FA_LIMITS[constrain(faLimitI, 0, 2)];
+    int lim = FA_LIMITS[constrain(faLimitI, 0, 3)];
     snprintf(line, sizeof line, "  FlightAware (Better Routes): %lu lookups this month%s%s, about $%.2f, %lu routes fixed; %lu since power-on; last answer %s\n",
              (unsigned long)faCount, lim ? " of " : "", lim ? String(lim).c_str() : "", faCount * FA_COST, (unsigned long)faFixed,
              (unsigned long)netStats.faAsked, faLastErr == 0 ? "none yet" : faLastErr == 200 ? "OK" : faKeyRefused() ? "key not accepted" : String(faLastErr).c_str());
     s += line;
     { static const char* const U[] = { "off", "Home only", "Home + airports", "all places" };          // v0.9.38
       static const char* WF[] = { "all flights", "low + overhead flights", "low flights only" };   // v0.9.40
-      snprintf(line, sizeof line, "    used for: %s, %s; details opened: %s; %lu repeat lookups avoided since power-on\n", U[constrain(faUseI, 0, 3)],
-               WF[constrain(faWhichI, 0, 2)], faDetailI ? "look it up" : "don't", (unsigned long)faRepeats); s += line; }
+      static const char* PL[] = { "Light", "Full", "Custom" };                                     // v0.9.43
+      snprintf(line, sizeof line, "    used for: %s, %s (%s); details opened: %s; %lu repeat lookups avoided since power-on\n", U[constrain(faUseI, 0, 3)],
+               PL[constrain(faPlanI, 0, 2)], WF[constrain(faWhichI, 0, 2)], faDetailI ? "look it up" : "don't", (unsigned long)faRepeats); s += line; }
   }
 
   s += "\nBoard\n";

@@ -64,7 +64,10 @@ void checkOverhead(int idx, int count, unsigned long at, int src) {
     a.valid = true; a.p = p; a.x = x; a.y = y; a.vx = vx; a.vy = vy; a.tca = tc; a.dmin = dmin; a.homeFt = gFt; a.at = at;
   }
   if (a.valid) {
-    if (!a.p.airline[0] && a.p.fits < 0) addRoute(a.p, home);   // airline and route, if known
+    if (isAirlineCallsign(a.p.callsign) && !a.p.routeFa) {     // v0.9.43: the alert plane may skip the pacing
+      if (strcmp(faUrgentCs, a.p.callsign)) { copyStr(faUrgentCs, sizeof faUrgentCs, a.p.callsign); faUrgentMs = millis(); }
+    }
+    if (a.p.fits != 1 && isAirlineCallsign(a.p.callsign)) addRoute(a.p, home);   // airline and route, if known
     Serial.printf("Overhead: %s in %.0f s, %.2f NM\n", a.p.callsign, a.tca, a.dmin);
   }
   if (!a.valid && !was) return;
