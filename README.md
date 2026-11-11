@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.png" alt="Volary Dynamics: Flight Board. Your airspace. Live, on e-ink." width="760"></p>
+
 # Flight Board
 
 **Live air traffic on an always-on e-ink display.** Flight Board shows the aircraft around your home or any airport you choose: flight, airline, aircraft type, route, altitude and a small radar. It tells you when a plane is about to pass overhead so you can step outside and look up.
