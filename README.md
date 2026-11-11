@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/banner-route.png" alt="Volary Dynamics: Flight Board. Your airspace. Live, on e-ink." width="760"></p>
+<p align="center"><img src="docs/banner-route-2.png" alt="Volary Dynamics: Flight Board. Your airspace. Live, on e-ink." width="760"></p>
 
 # Flight Board
 
