@@ -11,7 +11,9 @@ void webTask(void*) {
     if (!started && WiFi.status() == WL_CONNECTED) {
       if (MDNS.begin(hostName.c_str())) {
         MDNS.addService("http", "tcp", 80);
-        MDNS.addService("flightboard", "tcp", 80);         // v0.9.47: so a Flight Board Round can find the board by itself
+        MDNS.addService("flightboard", "tcp", 80);         // v0.9.47: so a Flight Board Scope can find the board by itself
+        char sn[20]; serialNumber(sn, sizeof sn);
+        MDNS.addServiceTxt((const char*)"flightboard", (const char*)"tcp", (const char*)"id", (const char*)sn);  // v0.9.48: ...and tell its own board from any other
       }
       server.collectHeaders(FB_HEADERS, 3);
       server.on("/", HTTP_GET, handleRoot);
@@ -20,7 +22,8 @@ void webTask(void*) {
       server.on("/help", HTTP_GET, handleHelp);
       server.on("/bg.jpg", HTTP_GET, handleBg);
       server.on("/board", HTTP_GET, handleBoard);
-      server.on("/radar.json", HTTP_GET, handleRadarJson);  // v0.9.47: what's on the radar, for a Flight Board Round
+      server.on("/radar.json", HTTP_GET, handleRadarJson);  // v0.9.47: what's on the radar, for a Flight Board Scope
+      server.on("/scope", HTTP_GET, handleScope);           // v0.9.48: pairing and settings for the Scope
       server.on("/clear", HTTP_GET, handleClear);
       server.on("/f/is.woff", HTTP_GET, handleFontIS);
       server.on("/f/isb.woff", HTTP_GET, handleFontISB);

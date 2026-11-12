@@ -114,7 +114,9 @@ void handleSettings() {
   b += F("</select><p class=hint>Optional GC9A01 LCD, see <a href=/help>Instructions</a> for pinout</p><label>Radar brightness</label><select name=rbri>");
   for (int p = 100; p >= 25; p -= 25)
     b += "<option value=" + String(p) + (p == rbri ? " selected>" : ">") + String(p) + "%</option>";
-  b += F("</select><p class=hint style=\"margin-bottom:0\">Dims the radar image. The LCD backlight always stays on.</p></div></div>");
+  b += F("</select><p class=hint style=\"margin-bottom:0\">Dims the radar image. The LCD backlight always stays on.</p></div>");
+  scopeCard(b);                            // v0.9.48: Flight Board Scope (23_scope)
+  b += F("</div>");
   // v0.9.35: Better Routes (FlightAware key). The saved key is never sent back to the page.
   // v0.9.36: folds away like Firmware; "On" glows.
   {

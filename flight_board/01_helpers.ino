@@ -282,6 +282,26 @@ String htmlEscape(const String& s) {
   return out;
 }
 
+// v0.9.48: undoes a "chunked" answer (HTTP/1.1 sends the body in pieces, each after its size in hex, ending with 0)
+struct Dechunk {
+  int st = 0; long left = 0; bool done = false, bad = false;    // st: 0 size line, 1 data, 2 line end after data, 3 rest of size line
+  void feed(const char* p, int n, String& out) {
+    int i = 0;
+    while (i < n && !done && !bad) {
+      char c = p[i];
+      if (st == 0 || st == 3) {
+        if (c == '\n') { if (left == 0) done = true; else st = 1; i++; }
+        else if (st == 0 && isxdigit((unsigned char)c)) { left = left * 16 + (isdigit((unsigned char)c) ? c - '0' : tolower(c) - 'a' + 10); if (left > 2000000) bad = true; i++; }
+        else { if (c != '\r' && c != ' ') st = 3; i++; }          // ";extension" or spaces: skip to the line's end
+      } else if (st == 1) {
+        int k = n - i < left ? n - i : (int)left;
+        out.concat(p + i, k); left -= k; i += k;
+        if (left == 0) st = 2;
+      } else { if (c == '\n') { st = 0; left = 0; } i++; }       // the CR LF after each piece
+    }
+  }
+};
+
 // One HTTPS GET; returns true and fills body on HTTP 200
 bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiKey);
 bool httpGet(const String& url, String& body, int timeoutMs) { return httpGetKey(url, body, timeoutMs, nullptr); }
@@ -295,7 +315,11 @@ bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiK
   HTTPClient http;
   http.setTimeout(timeoutMs);
   http.setConnectTimeout(timeoutMs);
-  http.useHTTP10(true);               // v0.9.45: one plain body (no chunks), so it can be read in pieces below
+  // v0.9.48: HTTP/1.1 again (adsb.lol now refuses 1.0 with "426"); a chunked body is undone below.
+  // "Connection: close", so a body without a length still ends when the server hangs up.
+  http.setReuse(false);
+  const char* hk[] = { "Transfer-Encoding" };
+  http.collectHeaders(hk, 1);
   http.setUserAgent(USER_AGENT);
   if (!http.begin(client, url)) {
     lastHttpCode = -100; lastHttpLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
@@ -312,7 +336,9 @@ bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiK
   }
   // v0.9.45: read the answer in pieces, checking in as it arrives, with a hard limit on the whole thing.
   // A server that sends a trickle used to hold the data part past the 40 s safety restart.
-  int len = http.getSize();                          // -1 = not given: read until the server closes
+  bool chunked = http.header("Transfer-Encoding").indexOf("chunked") >= 0;
+  Dechunk dc;
+  int len = chunked ? -1 : http.getSize();           // -1 = not given: read until the server closes
   if (len > 0) body.reserve(len);
   auto* st = http.getStreamPtr();
   uint32_t start = millis(), lastByte = start, limit = (uint32_t)timeoutMs * 2 < 15000 ? 15000 : (uint32_t)timeoutMs * 2;
@@ -322,7 +348,11 @@ bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiK
     int a = st->available();
     if (a > 0) {
       int r = st->readBytes(buf, a < 512 ? a : 512);
-      if (r > 0) { buf[r] = 0; body += buf; lastByte = millis(); }
+      if (r > 0) {
+        lastByte = millis();
+        if (chunked) { dc.feed(buf, r, body); if (dc.bad) ok = false; if (dc.done) break; }
+        else { buf[r] = 0; body += buf; }
+      }
       if (len > 0 && (int)body.length() >= len) break;          // all of it
     } else {
       if (!st->connected()) break;                               // server finished
@@ -333,6 +363,7 @@ bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiK
     wdtPet();
   }
   if (ok && len > 0 && (int)body.length() < len) ok = false;     // cut off
+  if (ok && chunked && !dc.done) ok = false;                     // cut off before the last (empty) piece
   http.end();
   if (!ok) {
     Serial.printf("  slow/cut-off answer (%u of %d bytes, %lu ms): %s\n", body.length(), len, millis() - start, url.c_str());

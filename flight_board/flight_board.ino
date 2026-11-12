@@ -1,7 +1,22 @@
 // =====================================================================
-//  Flight Board v0.9.47
+//  Flight Board v0.9.50
 //  Elecrow CrowPanel ESP32-S3 5.79" e-paper (792 x 272, 2x SSD1683)
 //  (c) 2026 Matt Hoechlin
+//
+//  New in v0.9.50: Scope pairing fix: the "it worked" reply from the Scope is now a locked word, not an empty message
+//    (the chip refuses to lock an empty one, so the board never heard back). Needs Flight Board Scope v0.26.
+//
+//  New in v0.9.49: compile fixes for v0.9.48 (nothing else changed).
+//
+//  New in v0.9.48:
+//    - Flight Board Scope (the round radar screen, was "Round"): pair it from Settings > Flight Board Scope by
+//      typing the code it shows. The board hands it the Wi-Fi over ESP-NOW, locked with that code (23_scope,
+//      scope_pair.h). The card then shows whether it's connected and sets its style, brightness and turn;
+//      Find flashes its screen, Forget sends it back to "Pair me". The board's ID is in its network announcement.
+//    - adsb.lol works again: it now refuses old-style (HTTP/1.0) requests ("HTTP 426"). Requests are HTTP/1.1,
+//      and answers sent in pieces ("chunked") are put back together.
+//    - Route log: when the free route was fine but the board shows it reversed (the return trip) or shows a
+//      guess instead, the line says so.
 //
 //  New in v0.9.47:
 //    - Flight Board Round support: http://<board>/radar.json gives what the radar shows (place, range, airports,
@@ -606,10 +621,17 @@
 #include "boot_screens.h"
 #include "bg_image.h"        // page background (Reno sectional chart)
 #include "web_fonts.h"       // fonts for the web pages
+#include <esp_now.h>         // v0.9.48: pairing a Flight Board Scope (23_scope)
+#include <esp_wifi.h>
+#include "scope_pair.h"
+// v0.9.49: the Scope's functions are used by earlier tabs, so they're declared here (the IDE didn't do it for 23_scope)
+void scopeCard(String& b);
+void scopeRadarPart(String& o);
+void handleScope();
 
-const char* FW_VERSION = "0.9.47";        // shown on the boot screens
+const char* FW_VERSION = "0.9.50";        // shown on the boot screens
 // Marks a .bin file as Flight Board firmware: Firmware Update looks for it. Keep the version the same as above.
-const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.47;";
+const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.50;";
 const int  FW_MARK_PRE = 15;              // length of "FLIGHTBOARD-FW:"
 
 // ================= SETTINGS =================
@@ -648,7 +670,7 @@ const int TZ_DEFAULT     = 4;             // Pacific
 int tzIndex = TZ_DEFAULT;
 // (tzRule() is further down: the Arduino IDE puts its made-up function declarations
 //  above the first function in the file, so no function may come before the structs)
-const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.47; +https://volarydynamics.com)";
+const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.50; +https://volarydynamics.com)";
 // ============================================
 
 // ---------- CrowPanel 5.79" pins ----------
@@ -840,7 +862,7 @@ const uint32_t FAMEMO_KEEP_MS = 4UL * 3600000UL, FA_RETRY_MS = 180000UL;
 FaMemo* faMemo = nullptr;
 int faMemoNext = 0;
 // v0.9.38: route log, the last route decisions (PSRAM, cleared on restart, no positions)
-struct RLog { time_t t; char cs[9]; char type[6]; int32_t alt; float nm; char freeR[48]; char fa[52]; char shown[24]; };   // v0.9.46: fa 40 -> 52 ("free was wrong, fixed" was cut off)
+struct RLog { time_t t; char cs[9]; char type[6]; int32_t alt; float nm; char freeR[64]; char fa[52]; char shown[24]; };   // v0.9.46: fa 40 -> 52 ("free was wrong, fixed" was cut off)
 const int RLOG_N = 60;
 RLog* rlog = nullptr;
 int rlogNext = 0, rlogCount = 0;

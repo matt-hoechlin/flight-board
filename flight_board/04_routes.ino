@@ -258,10 +258,31 @@ void rlogAdd(const Plane& p) {
     if (!strcmp(e.shown, shown) && (!rlFa[0] || !strcmp(e.fa, rlFa) || !strncmp(rlFa, "not asked", 9) || !strncmp(rlFa, "retry in", 8) || !strncmp(rlFa, "route from", 10))) return;
     break;
   }
+  // v0.9.48: say so when the free route was fine but the board shows something else
+  char fr[64]; copyStr(fr, sizeof fr, rlFree);
+  size_t fl = strlen(fr);
+  if (fl > 3 && !strcmp(fr + fl - 3, " ok")) {
+    char c[3][5] = { "", "", "" }, s0[5] = "", s1[5] = "";       // the free route's airports, and the two shown
+    int nc = 0; const char* q = fr;
+    while (nc < 3 && q < fr + fl - 3) {
+      copyStr(c[nc], sizeof c[nc], q); { char* x = strchr(c[nc], ' '); if (x) *x = 0; } nc++;
+      const char* ar = strstr(q, " -> "); if (!ar) break; q = ar + 4;
+    }
+    const char* sh = shown; if (!strncmp(sh, "~ ", 2)) sh += 2;
+    copyStr(s0, sizeof s0, sh); { char* x = strchr(s0, ' '); if (x) *x = 0; }
+    const char* ar = strstr(sh, "-> "); if (ar) copyStr(s1, sizeof s1, ar + 3);
+    bool same = false, rev = false;
+    for (int i = 0; i + 1 < nc; i++) {                            // any leg of it counts (BWI -> RNO -> LAS shows RNO -> LAS)
+      if (!strcmp(c[i], s0) && !strcmp(c[i + 1], s1)) same = true;
+      if (!strcmp(c[i + 1], s0) && !strcmp(c[i], s1)) rev = true;
+    }
+    if (!same && rev) strncat(fr, ", shown reversed (return trip)", sizeof fr - strlen(fr) - 1);
+    else if (!same) strncat(fr, ", but a guess is shown", sizeof fr - strlen(fr) - 1);
+  }
   RLog& e = rlog[rlogNext]; rlogNext = (rlogNext + 1) % RLOG_N; if (rlogCount < RLOG_N) rlogCount++;
   e.t = time(nullptr); copyStr(e.cs, sizeof e.cs, p.callsign); copyStr(e.type, sizeof e.type, p.type);
   e.alt = p.altFt; e.nm = p.distNm;
-  copyStr(e.freeR, sizeof e.freeR, rlFree); copyStr(e.fa, sizeof e.fa, rlFa[0] ? rlFa : "not needed"); copyStr(e.shown, sizeof e.shown, shown);
+  copyStr(e.freeR, sizeof e.freeR, fr); copyStr(e.fa, sizeof e.fa, rlFa[0] ? rlFa : "not needed"); copyStr(e.shown, sizeof e.shown, shown);
 }
 void rlogText(String& s) {
   char line[200], t[12];

@@ -32,7 +32,9 @@ void handleRadarJson() {
              (unsigned long)p.icao, cs.c_str(), p.type, p.x, p.y, p.trk, p.gs, p.alt, p.vs, p.squawk, p.airliner ? 1 : 0, i < ROUTE_LOOKUPS ? 1 : 0);
     o += b;
   }
-  o += "]}";
+  o += "]";
+  scopeRadarPart(o);                                             // v0.9.48: the Scope that's asking: its settings
+  o += "}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", o);
 }
