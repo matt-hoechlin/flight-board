@@ -2,8 +2,43 @@
 // One tab of the flight_board sketch. Arduino joins the tabs in name order, after flight_board.ino.
 // "Remote Control": /board?show=N, ?refresh=1, ?layout=0|1, ?key=prev|next|select|back, ?ac=N. Answers the board's state.
 // The main loop does the work (the same as the knob), so the e-paper is only ever drawn from one place.
+// v0.9.47: what the radar shows, for a Flight Board Round (round touch screen) on the same network. Small (~2 KB):
+// place, range, nearby airports, and each aircraft's position (NM east/north of the place) when the board last
+// heard; "age" says how long ago, so the round screen can move them on. "sel": the aircraft open on the board.
+void handleRadarJson() {
+  if (!hostOk()) { sendBlocked(); return; }
+  if (!radarLock) { server.send(503, "text/plain", "not ready"); return; }
+  static RadarSnap snap;                                         // (static: too big for the web task's stack)
+  xSemaphoreTake(radarLock, portMAX_DELAY);
+  snap = radarShared;
+  xSemaphoreGive(radarLock);
+  String o; o.reserve(160 + snap.n * 72);
+  char b[160];
+  String nm = snap.name; nm.replace("\"", "'"); nm.replace("\\", "/");
+  snprintf(b, sizeof b, "{\"v\":1,\"fw\":\"%s\",\"name\":\"%s\",\"range\":%.1f,\"age\":%lu,\"view\":%d,\"sel\":\"",
+           FW_VERSION, nm.c_str(), snap.range, (unsigned long)(millis() - snap.t0), screenView == V_DETAIL ? 1 : 0);
+  o += b;
+  if (snap.sel >= 0 && snap.sel < snap.n) { snprintf(b, sizeof b, "%06lx", (unsigned long)snap.b[snap.sel].icao); o += b; }
+  o += "\",\"ap\":[";
+  for (int i = 0; i < snap.nAp; i++) {
+    snprintf(b, sizeof b, "%s[\"%s\",%.2f,%.2f]", i ? "," : "", snap.ap[i].code, snap.ap[i].x, snap.ap[i].y); o += b;
+  }
+  o += "],\"p\":[";
+  for (int i = 0; i < snap.n; i++) {
+    const RadarBlip& p = snap.b[i];
+    String cs = p.cs; cs.replace("\"", "");
+    // [hex, callsign, type, x, y, track, speed, altitude, climb, squawk, airliner, can be opened]
+    snprintf(b, sizeof b, "%s[\"%06lx\",\"%s\",\"%s\",%.2f,%.2f,%.0f,%.0f,%ld,%d,%d,%d,%d]", i ? "," : "",
+             (unsigned long)p.icao, cs.c_str(), p.type, p.x, p.y, p.trk, p.gs, p.alt, p.vs, p.squawk, p.airliner ? 1 : 0, i < ROUTE_LOOKUPS ? 1 : 0);
+    o += b;
+  }
+  o += "]}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", o);
+}
+
 void handleBoard() {
-  bool acts = server.hasArg("show") || server.hasArg("layout") || server.hasArg("refresh") || server.hasArg("key") || server.hasArg("ac");
+  bool acts = server.hasArg("show") || server.hasArg("layout") || server.hasArg("refresh") || server.hasArg("key") || server.hasArg("ac") || server.hasArg("acx");
   if (acts ? !fromOwnPage(true) : !hostOk()) { sendBlocked(); return; }
   int cur = curPlace, lay = boardLayout;
   if (server.hasArg("show")) {
@@ -20,7 +55,12 @@ void handleBoard() {
     int i = server.arg("ac").toInt();
     if (i >= 0 && i < ROUTE_LOOKUPS) webAircraft = i;
   }
-  if (server.hasArg("key") || server.hasArg("ac")) delay(350);      // let the board act, so the answer shows the new state
+  if (server.hasArg("acx")) {                                     // v0.9.47: by its hex (the round screen), so it can't open the wrong one
+    uint32_t hx = strtoul(server.arg("acx").c_str(), nullptr, 16);
+    int n = viewCount < ROUTE_LOOKUPS ? viewCount : ROUTE_LOOKUPS;
+    for (int i = 0; i < n; i++) if (view[i].icao == hx) { webAircraft = i; break; }
+  }
+  if (server.hasArg("key") || server.hasArg("ac") || server.hasArg("acx")) delay(350);      // let the board act, so the answer shows the new state
   cur = curPlace;
   if (webShow >= 0) cur = webShow;
   // Answer: place|layout|view (0 board, 1 details)|aircraft on show|callsigns of the aircraft that can be opened

@@ -72,6 +72,7 @@ void refreshScreen(bool fromData) {
   do {
     if (screenView == V_SETTINGS) drawSettingsScreen();
     else if (screenView == V_ALERT) drawOverhead();
+    else if (screenView == V_EMERG) drawEmergency();     // v0.9.44
     else if (screenView == V_DETAIL && detailIdx < viewCount) drawDetail();
     else drawBoard();
   } while (display.nextPage());

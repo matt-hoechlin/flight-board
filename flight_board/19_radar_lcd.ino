@@ -28,6 +28,7 @@ void radarPublish(bool newData) {
     const Plane& p = view[i];
     RadarBlip& b = s.b[s.n++];
     copyStr(b.cs, sizeof b.cs, p.callsign[0] ? p.callsign : "?");
+    copyStr(b.type, sizeof b.type, p.type);                       // v0.9.44: for data blocks
     float a = p.bearing * DEG_TO_RAD;
     b.x = p.distNm * sinf(a);
     b.y = p.distNm * cosf(a);
@@ -37,8 +38,27 @@ void radarPublish(bool newData) {
     b.dist = p.distNm;
     b.alt = p.altFt;
     b.vs = p.climbRate;
+    b.squawk = p.squawk;
+    b.icao = p.icao;
   }
   s.sel = (screenView == V_DETAIL && detailIdx < viewCount) ? detailIdx : -1;
+  { // v0.9.46: the airports on the scope, nearest first (looked up again only when the place changes)
+    static double aLat = 999, aLon = 999; static float aRange = -1;
+    const Place& pl = places[curPlace];
+    if (pl.lat != aLat || pl.lon != aLon || pl.radiusNm != aRange) {
+      aLat = pl.lat; aLon = pl.lon; aRange = pl.radiusNm; s.nAp = 0;
+      float k = cosf(pl.lat * DEG_TO_RAD), dmax = pl.radiusNm * 0.95f, best[6];
+      for (int i = 0; i < NUM_AIRPORTS; i++) {
+        const Airport& a = AIRPORTS[i];
+        if (strlen(a.code) != 3 || !isalpha(a.code[0]) || !isalpha(a.code[1]) || !isalpha(a.code[2])) continue;   // airline-style codes only
+        float x = (a.lon - pl.lon) * 60.0f * k, y = (a.lat - pl.lat) * 60.0f, d = sqrtf(x * x + y * y);
+        if (d > dmax) continue;
+        int at = s.nAp < 6 ? s.nAp++ : 6;
+        while (at > 0 && best[at - 1] > d) { if (at < 6) { best[at] = best[at - 1]; s.ap[at] = s.ap[at - 1]; } at--; }
+        if (at < 6) { best[at] = d; copyStr(s.ap[at].code, sizeof s.ap[at].code, a.code); s.ap[at].x = x; s.ap[at].y = y; }
+      }
+    }
+  }
   if (newData || !s.t0) s.t0 = millis();
   {                                       // ground height where the board is looking (cached per place)
     static int gPlace = -1; static double gLat = 999; static long gFt = 0;
@@ -284,6 +304,162 @@ void radarDrawAtc(GFXcanvas16& g, const RadarSnap& s) {
   radarSelectedBlock(g, s);
 }
 
+// v0.9.44: ATC Data Blocks: a controller's scope. Each aircraft is a small square target with a line showing
+// where it's heading, and a three-line tag: callsign / flight level (arrow when climbing or descending) and
+// speed in tens of knots / aircraft type. Tags go on whichever side of the target is clear.
+void radarDrawBlocks(GFXcanvas16& g, const RadarSnap& s) {
+  g.fillScreen(rgb(3, 16, 9));
+  uint16_t ring = rgb(30, 80, 45), dimr = rgb(20, 55, 30), green = rgb(124, 255, 138), dimg = rgb(70, 150, 82);
+  g.drawCircle(RADAR_C, RADAR_C, RADAR_R, ring);
+  for (int k = 1; k <= 3; k++) {
+    int16_t r = RADAR_R * k / 4;
+    for (int t = 0; t < 360; t += 4) g.drawPixel(RADAR_C + r * sinf(t * DEG_TO_RAD), RADAR_C - r * cosf(t * DEG_TO_RAD), dimr);
+  }
+  for (int b = 0; b < 360; b += 30) {
+    float a = b * DEG_TO_RAD;
+    g.drawLine(RADAR_C + (RADAR_R - 5) * sinf(a), RADAR_C - (RADAR_R - 5) * cosf(a), RADAR_C + RADAR_R * sinf(a), RADAR_C - RADAR_R * cosf(a), ring);
+  }
+  radarText(g, RADAR_C - 2, 8, "N", dimg);
+  radarNumBoxes = 0;
+  radarRingLabels(g, s.range, dimr);
+  g.drawFastHLine(RADAR_C - 4, RADAR_C, 9, dimg); g.drawFastVLine(RADAR_C, RADAR_C - 4, 9, dimg);
+  struct Box { int16_t x, y, w, h; } used[MAX_PLANES]; int nu = 0;
+  auto clear = [&](int16_t x, int16_t y, int16_t w, int16_t h) {
+    if (x < 6 || x + w > RADAR_SIZE - 6 || y < 6 || y + h > RADAR_SIZE - 6) return false;
+    int16_t dx = x + w / 2 - RADAR_C, dy = y + h / 2 - RADAR_C;
+    if (dx * dx + dy * dy > (RADAR_R - 14) * (RADAR_R - 14)) return false;
+    for (int k = 0; k < nu; k++)
+      if (x < used[k].x + used[k].w && used[k].x < x + w && y < used[k].y + used[k].h && used[k].y < y + h) return false;
+    return true;
+  };
+  radarSortOrder(s);
+  bool focus = s.sel >= 0;
+  for (int o = 0; o < s.n; o++) {
+    int i = radarOrder[o];
+    const RadarBlip& b = s.b[i];
+    float x, y; int16_t sx, sy;
+    radarPos(b, s.t0, x, y);
+    if (!radarXY(x, y, s.range, sx, sy)) continue;
+    bool sel = i == s.sel;
+    uint16_t col = sel ? RADAR_SEL_YELLOW : green;
+    if (focus && !sel) col = dimg;
+    g.fillRect(sx - 2, sy - 2, 5, 5, col);                                           // the target
+    float a = b.trk * DEG_TO_RAD;
+    g.drawLine(sx, sy, sx + 12 * sinf(a), sy - 12 * cosf(a), col);                   // where it's heading
+    char l1[10], l2[12], l3[6];
+    copyStr(l1, sizeof l1, b.cs);
+    long fl = (b.alt + 50) / 100; if (fl < 0) fl = 0; if (fl > 999) fl = 999;
+    int sp = (int)lroundf(b.gs / 10.0f); if (sp > 99) sp = 99;
+    snprintf(l2, sizeof l2, "%03ld%c %02d", fl, b.vs > 500 ? 0x18 : b.vs < -500 ? 0x19 : ' ', sp);   // 0x18/0x19: arrows
+    copyStr(l3, sizeof l3, b.type);
+    int16_t w = 6 * (int16_t)(strlen(l1) > strlen(l2) ? strlen(l1) : strlen(l2)), h = l3[0] ? 26 : 17;
+    int16_t cand[4][2] = { { (int16_t)(sx + 10), (int16_t)(sy - 20) }, { (int16_t)(sx - 10 - w), (int16_t)(sy - 20) },
+                           { (int16_t)(sx + 10), (int16_t)(sy + 4) },  { (int16_t)(sx - 10 - w), (int16_t)(sy + 4) } };
+    int c = -1;
+    for (int k = 0; k < 4 && c < 0; k++) if (clear(cand[k][0], cand[k][1], w, h)) c = k;
+    if (c < 0) {                                                                    // crowded: callsign only, or nothing
+      if (sel || !focus) for (int k = 0; k < 4 && c < 0; k++) if (clear(cand[k][0], cand[k][1], 6 * (int16_t)strlen(l1), 8)) { c = k; h = 8; }
+      if (c < 0) continue;
+    }
+    int16_t tx = cand[c][0], ty = cand[c][1];
+    g.drawLine(sx + (c % 2 ? -3 : 3), sy, c % 2 ? tx + w + 1 : tx - 2, ty + (c < 2 ? 12 : 4), col == green ? dimg : col);   // leader line
+    radarText(g, tx, ty, l1, col);
+    if (h > 8) radarText(g, tx, ty + 9, l2, col);
+    if (h > 17) radarText(g, tx, ty + 18, l3, col == green ? dimg : col);
+    if (nu < MAX_PLANES) used[nu++] = { tx, ty, w, h };
+  }
+  if (!focus) radarCentreNameFree(g, s.name, dimg);
+}
+
+// v0.9.46: Modern TRACON, after the scopes in today's approach-control rooms (STARS): black, grey range rings and
+// nearby airports, blue history dots behind each aircraft, green data blocks on a leader line. An airline flight
+// gets a full block (callsign / altitude in hundreds + speed in tens of knots, swapping with the type every 2 s);
+// everything else a one-line block (altitude + speed). The aircraft open on the board turns white.
+void radarDrawTracon(GFXcanvas16& g, const RadarSnap& s) {
+  g.fillScreen(0);
+  uint16_t ring = rgb(52, 56, 62), map = rgb(95, 100, 108), green = rgb(80, 235, 90), dimg = rgb(40, 120, 48),
+           white = rgb(240, 240, 240), target = rgb(120, 190, 255);
+  const uint16_t hist[5] = { rgb(40, 90, 255), rgb(32, 72, 210), rgb(26, 58, 170), rgb(20, 44, 130), rgb(14, 32, 95) };
+  for (int k = 1; k <= 4; k++) {
+    int16_t r = RADAR_R * k / 4;
+    if (k < 4) for (int t = 0; t < 360; t += 2) g.drawPixel(RADAR_C + r * sinf(t * DEG_TO_RAD), RADAR_C - r * cosf(t * DEG_TO_RAD), ring);
+    else g.drawCircle(RADAR_C, RADAR_C, r, ring);
+  }
+  for (int b = 0; b < 360; b += 10) {                                               // compass rose on the edge
+    float a = b * DEG_TO_RAD; int16_t r1 = RADAR_R - (b % 30 == 0 ? 6 : 3);
+    g.drawLine(RADAR_C + r1 * sinf(a), RADAR_C - r1 * cosf(a), RADAR_C + RADAR_R * sinf(a), RADAR_C - RADAR_R * cosf(a), b % 30 == 0 ? map : ring);
+  }
+  radarNumBoxes = 0;
+  struct Box { int16_t x, y, w, h; } used[MAX_PLANES + 8]; int nu = 0;
+  auto clear = [&](int16_t x, int16_t y, int16_t w, int16_t h) {
+    int16_t dx = x + w / 2 - RADAR_C, dy = y + h / 2 - RADAR_C;
+    if (dx * dx + dy * dy > (RADAR_R - 12) * (RADAR_R - 12)) return false;
+    for (int k = 0; k < nu; k++)
+      if (x < used[k].x + used[k].w && used[k].x < x + w && y < used[k].y + used[k].h && used[k].y < y + h) return false;
+    return true;
+  };
+  for (int i = 0; i < s.nAp; i++) {                                                 // the airports, like the map's
+    int16_t ax, ay;
+    if (!radarXY(s.ap[i].x, s.ap[i].y, s.range, ax, ay)) continue;
+    g.drawCircle(ax, ay, 3, map); g.drawFastHLine(ax - 5, ay, 11, map); g.drawFastVLine(ax, ay - 5, 11, map);
+    if (clear(ax + 6, ay - 3, 18, 8)) { radarText(g, ax + 6, ay - 3, s.ap[i].code, map); used[nu++] = { (int16_t)(ax + 6), (int16_t)(ay - 3), 18, 8 }; }
+  }
+  { char h[32]; snprintf(h, sizeof h, "%s %ld%s", s.name, lroundf(showDist(s.range)), UN.dist);   // top: place and range
+    int16_t w = strlen(h) * 6; radarText(g, RADAR_C - w / 2, 18, h, map); used[nu++] = { (int16_t)(RADAR_C - w / 2), 18, w, 8 }; }
+  g.drawFastHLine(RADAR_C - 3, RADAR_C, 7, map); g.drawFastVLine(RADAR_C, RADAR_C - 3, 7, map);   // the board
+  radarSortOrder(s);
+  bool focus = s.sel >= 0, typeNow = (millis() / 2000) & 1;
+  for (int o = 0; o < s.n; o++) {
+    int i = radarOrder[o];
+    const RadarBlip& b = s.b[i];
+    float x, y; int16_t sx, sy;
+    radarPos(b, s.t0, x, y);
+    if (!radarXY(x, y, s.range, sx, sy)) continue;
+    bool sel = i == s.sel;
+    uint16_t col = sel ? white : (focus ? dimg : green);
+    float a = b.trk * DEG_TO_RAD, step = b.gs / 3600.0f * 5.0f;                   // history: where it was every 5 s
+    for (int h = 5; h >= 1; h--) {
+      int16_t hx, hy;
+      if (radarXY(x - step * h * sinf(a), y - step * h * cosf(a), s.range, hx, hy)) g.fillRect(hx - 1, hy - 1, 2, 2, hist[h - 1]);
+    }
+    g.fillCircle(sx, sy, 2, sel ? white : target);                                  // the aircraft
+    char l1[10], l2[12];
+    long fl = (b.alt + 50) / 100; if (fl < 0) fl = 0; if (fl > 999) fl = 999;
+    int sp = (int)lroundf(b.gs / 10.0f); if (sp > 99) sp = 99;
+    bool full = b.airliner || sel;
+    if (full) {
+      copyStr(l1, sizeof l1, b.cs);
+      if (typeNow && b.type[0]) snprintf(l2, sizeof l2, "%03ld %s", fl, b.type);
+      else snprintf(l2, sizeof l2, "%03ld %02d", fl, sp);
+    } else {
+      snprintf(l1, sizeof l1, "%03ld %02d", fl, sp); l2[0] = 0;
+    }
+    int16_t w = 6 * (int16_t)(strlen(l1) > strlen(l2) ? strlen(l1) : strlen(l2)), h = l2[0] ? 17 : 8;
+    // leader line 14 px out; try NE, NW, SE, SW
+    const int8_t dir[4][2] = { { 1, -1 }, { -1, -1 }, { 1, 1 }, { -1, 1 } };
+    int c = -1; int16_t tx = 0, ty = 0;
+    for (int k = 0; k < 4 && c < 0; k++) {
+      int16_t ex = sx + dir[k][0] * 10, ey = sy + dir[k][1] * 10;
+      tx = dir[k][0] > 0 ? ex + 2 : ex - 2 - w; ty = dir[k][1] < 0 ? ey - h + 3 : ey - 3;
+      if (clear(tx, ty, w, h)) c = k;
+    }
+    if (c < 0 && l2[0]) {                                                         // crowded: try the top line only
+      l2[0] = 0; h = 8; w = 6 * (int16_t)strlen(l1);
+      for (int k = 0; k < 4 && c < 0; k++) {
+        int16_t ex = sx + dir[k][0] * 10, ey = sy + dir[k][1] * 10;
+        tx = dir[k][0] > 0 ? ex + 2 : ex - 2 - w; ty = dir[k][1] < 0 ? ey - h + 3 : ey - 3;
+        if (clear(tx, ty, w, h)) c = k;
+      }
+    }
+    if (c < 0) { if (!sel) continue; c = 0; tx = sx + 12; ty = sy - h - 7; }
+    if (focus && !sel && !full) continue;                                          // keep it quiet while one is open
+    g.drawLine(sx + dir[c][0] * 3, sy + dir[c][1] * 3, sx + dir[c][0] * 10, sy + dir[c][1] * 10, col);
+    radarText(g, tx, ty, l1, col);
+    if (l2[0]) radarText(g, tx, ty + 9, l2, col);
+    if (nu < MAX_PLANES + 8) used[nu++] = { tx, ty, w, h };
+  }
+}
+
 void radarDrawAmber(GFXcanvas16& g, const RadarSnap& s, float sweep) {
   g.fillScreen(rgb(10, 5, 0));
   uint16_t dim = rgb(110, 65, 10), amber = rgb(255, 170, 40);
@@ -398,14 +574,14 @@ void radarDrawClassic(GFXcanvas16& g, const RadarSnap& s, float sweep) {
     float a = i * 90 * DEG_TO_RAD;
     int16_t tx = RADAR_C + (RADAR_R - 8) * sinf(a) - 2, ty = RADAR_C - (RADAR_R - 8) * cosf(a) - 3;
     radarClaim(tx - 1, ty - 1, 8, 10);
-    radarText(g, tx, ty, NESW[i], lime);
+    radarText(g, tx, ty, NESW[i], white);                     // v0.9.46: white labels (lime blended into the scope)
   }
-  radarNorthLabels(g, range, lime);
+  radarNorthLabels(g, range, white);
   { char h[32];                                                // header: place and outer ring
     snprintf(h, sizeof h, "%s  %ld%s", alert ? "HOME" : s.name, lroundf(showDist(range)), UN.dist);
     int16_t w = strlen(h) * 6;
     radarClaim(RADAR_C - w / 2 - 1, 25, w + 2, 10);
-    radarText(g, RADAR_C - w / 2, 26, h, lime); }
+    radarText(g, RADAR_C - w / 2, 26, h, white); }
   radarArrow(g, RADAR_C, RADAR_C, 0, white, 5);               // where the board is
   int feat = alert ? -1 : radarFeatured(s);
   // ---- the aircraft: diamond + a short trail behind it
@@ -593,6 +769,8 @@ void radarDraw(GFXcanvas16& g, const RadarSnap& s, int style, float sweep) {
   if (style == 1)      { radarDrawClassic(g, s, sweep); return; }
   if (s.alert) { radarDrawAlert(g, s, style); g.setTextSize(1); return; }
   if (style == 2)      radarDrawAtc(g, s);
+  else if (style == 5) radarDrawBlocks(g, s);                     // v0.9.44
+  else if (style == 6) radarDrawTracon(g, s);                     // v0.9.46
   else if (style == 3) radarDrawAmber(g, s, sweep);
   else                 radarDrawClassic(g, s, sweep);
 }

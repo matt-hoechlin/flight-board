@@ -111,6 +111,13 @@ void drawOverhead() {
   } else {
     display.setCursor(14, 168); display.print(p.legNote == LEG_MISMATCH ? "Route not confirmed" : "No route on file");
   }
+  if (p.squawk >= 0) {                                       // v0.9.45: squawk and what it means, under the route
+    snprintf(line, sizeof line, "SQUAWK %04d", p.squawk);
+    display.setFont(&DV_ROW); display.setCursor(14, 194); display.print(line);
+    const char* mean = sqMeaning(p.squawk, nullptr);
+    if (mean[0]) drawTag(display.getCursorX() + 8, 194, mean, &DV_SMALL);
+    display.setFont(&DV_ROW);
+  }
 
   // ---- middle: 2 x 3 facts
   char v[6][24]; const char* k[6];
@@ -167,3 +174,95 @@ void drawOverhead() {
   printRight(line, W - 14, 264);
 }
 
+
+
+// ---------------------------------------------------------------------
+//  v0.9.44: Squawk codes on screen
+// ---------------------------------------------------------------------
+// White text on a black tag, baseline y; returns the x after it
+int16_t drawTag(int16_t x, int16_t y, const char* t, const GFXfont* f) {
+  display.setFont(f);
+  int16_t bx, by; uint16_t bw, bh;
+  display.getTextBounds(t, x, y, &bx, &by, &bw, &bh);
+  int16_t padX = 6, top = y - (f == &DV_SMALL ? 13 : 19), h = (f == &DV_SMALL ? 17 : 24);
+  display.fillRect(x, top, bw + 2 * padX, h, GxEPD_BLACK);
+  display.setTextColor(GxEPD_WHITE);
+  display.setCursor(x + padX - (bx - x), y);
+  display.print(t);
+  display.setTextColor(GxEPD_BLACK);
+  return x + bw + 2 * padX;
+}
+
+// The nearest confirmed emergency (main loop's copy), or nullptr; *count = how many
+const Emerg* emergBest(int* count) {
+  const Emerg* best = nullptr; int n = 0;
+  for (int i = 0; i < emergCurN; i++) {
+    if (emergCur[i].hits < 2) continue;
+    n++;
+    if (!best || emergCur[i].homeNm < best->homeNm) best = &emergCur[i];
+  }
+  if (count) *count = n;
+  return best;
+}
+bool emergConfirmed(uint32_t icao) {
+  for (int i = 0; i < emergCurN; i++) if (emergCur[i].icao == icao && emergCur[i].hits >= 2) return true;
+  return false;
+}
+
+void drawEmergency() {
+  const int16_t W = display.width();
+  const Emerg& e = emergShow;
+  const Plane& p = e.p;
+  char line[112], buf[32];
+  display.fillScreen(GxEPD_WHITE);
+  display.drawRect(0, 0, W, display.height(), GxEPD_BLACK);
+  clockText(buf, sizeof buf, false);
+  drawHeader("EMERGENCY SQUAWK", "", buf, ICON_NONE);
+  // left: the code
+  int lvl; const char* mean = sqMeaning(e.code, &lvl);
+  display.fillRect(14, 60, 236, 150, GxEPD_BLACK);
+  display.setTextColor(GxEPD_WHITE);
+  display.setFont(&DV_SMALL); printCenteredIn("SQUAWK", 14, 250, 86, 0);
+  display.setFont(&DV_HUGE);
+  snprintf(buf, sizeof buf, "%04d", e.code);
+  printCenteredIn(buf, 14, 250, 162, 0);
+  display.setFont(&DV_ROW); printCenteredIn(mean, 14, 250, 196, 0);
+  display.setTextColor(GxEPD_BLACK);
+  // right: who, where
+  display.setFont(&DV_BIG); display.setCursor(270, 92); display.print(p.callsign);
+  display.setFont(&DV_ROW);
+  const char* who = p.mil ? "Military" : airlineFullFor(p);
+  const char* maker = makerName(p.type);
+  line[0] = 0;
+  if (who && who[0]) snprintf(line, sizeof line, "%s  -  ", who);
+  size_t n = strlen(line);
+  if (p.type[0]) snprintf(line + n, sizeof line - n, "%s%s%s", maker, maker[0] ? " " : "", modelName(p.type));
+  else snprintf(line + n, sizeof line - n, "Aircraft type unknown");
+  if (p.reg[0] && strcmp(p.reg, p.callsign)) { n = strlen(line); snprintf(line + n, sizeof line - n, "  -  %s", p.reg); }
+  fitWords(line, 410); display.setCursor(270, 120); display.print(line);
+  if (p.fits == 1 && p.fromCode[0]) { drawPlaneIcon(270, 147); drawRoute(294, 150, p.fromCode, p.toCode, false); }
+  else { display.setCursor(270, 150); display.print("No route on file"); }
+  formatAlt(showAlt(p.altFt), buf, sizeof buf);
+  snprintf(line, sizeof line, "%s %s  %s  %d %s  -  HDG %03d", buf, UN.alt,
+           p.climbRate > CLIMB_FPM ? "climbing" : p.climbRate < -CLIMB_FPM ? "descending" : "level",
+           showSpd(p.gs), UN.spd, (int)lroundf(p.track) % 360);
+  fitWords(line, 410); display.setCursor(270, 178); display.print(line);
+  snprintf(line, sizeof line, "%.0f %s %s of Home", showDist(e.homeNm), UN.dist, compass(e.homeBrg));
+  fitWords(line, 410); display.setCursor(270, 204); display.print(line);
+  // small scope: Home in the middle, the aircraft on its bearing, pointing along its track
+  const int16_t cx = 730, cy = 136, R = 44;
+  display.drawCircle(cx, cy, R, GxEPD_BLACK); display.drawCircle(cx, cy, R + 1, GxEPD_BLACK);
+  for (int t = 0; t < 360; t += 12) display.drawPixel(cx + R / 2 * sinf(t * DEG_TO_RAD), cy - R / 2 * cosf(t * DEG_TO_RAD), GxEPD_BLACK);
+  display.setFont(&DV_SMALL); printCenteredIn("N", cx - 10, cx + 10, cy - R - 4, 0);
+  drawHouseIcon(cx - 8, cy + 7);
+  float rr = R - 10, a = e.homeBrg * DEG_TO_RAD;
+  { float px = cx + rr * sinf(a), py = cy - rr * cosf(a), t = p.track * DEG_TO_RAD, ct = cosf(t), st = sinf(t);
+    auto P = [&](float fx, float fy, int16_t& ox, int16_t& oy) { ox = lroundf(px + fx * ct - fy * st); oy = lroundf(py + fx * st + fy * ct); };
+    int16_t x0, y0, x1, y1, x2, y2;
+    P(0, -9, x0, y0); P(-7, 7, x1, y1); P(7, 7, x2, y2); display.fillTriangle(x0, y0, x1, y1, x2, y2, GxEPD_BLACK); }
+  display.drawFastHLine(8, 240, W - 16, GxEPD_BLACK);
+  display.setFont(&DV_SMALL); display.setCursor(14, 260);
+  unsigned long ago = (millis() - e.firstMs) / 60000UL;
+  snprintf(line, sizeof line, "First seen squawking %04d %lu min ago  -  Any button: back to the board", e.code, ago);
+  display.print(line);
+}

@@ -197,7 +197,7 @@ html .undo button,html.dark .undo button{width:auto;margin:0;padding:6px 12px;ba
 @media(max-width:899px){form:has(#c-info){display:flex;flex-direction:column}#c-info{order:9}form:has(#c-info)>button:not([type]){order:8}}
 #c-nav{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}#c-nav .lb{margin:0;padding:10px 18px;font-size:15px}
 @media(max-width:899px){#c-nav{flex-direction:column}}
-@media(min-width:900px){.scol{display:flex;flex-direction:column;gap:16px;align-self:stretch}.scol>.card{margin:0;flex-grow:1}
+@media(min-width:900px){.scol{display:flex;flex-direction:column;gap:16px;align-self:stretch}.scol>.card{margin:0}
 #c-sys,#c-diag{grid-column:1/-1}#c-sys .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}#c-sys .two button{margin:0}}
 h3.sub{font:600 13px/1.2 GM,ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 6px;color:inherit;opacity:.8}
 p.legal2{margin:0;font-size:14px}

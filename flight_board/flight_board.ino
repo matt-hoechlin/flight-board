@@ -1,7 +1,50 @@
 // =====================================================================
-//  Flight Board v0.9.43
+//  Flight Board v0.9.47
 //  Elecrow CrowPanel ESP32-S3 5.79" e-paper (792 x 272, 2x SSD1683)
 //  (c) 2026 Matt Hoechlin
+//
+//  New in v0.9.47:
+//    - Flight Board Round support: http://<board>/radar.json gives what the radar shows (place, range, airports,
+//      aircraft with their hex, position, track, speed, altitude, climb, squawk; and the one open on the board).
+//      The board also announces itself on the network as "_flightboard._tcp", so a round screen finds it.
+//      /board?acx=<hex> opens that aircraft (same rules as the Remote Control buttons).
+//
+//  New in v0.9.46:
+//    - Radar LCD: new style "Modern TRACON", after today's approach-control scopes (STARS): black, grey range rings
+//      and nearby airports, blue history dots, green data blocks (callsign / altitude + speed, swapping with the
+//      type every 2 s; one line for private aircraft). The aircraft open on the board turns white.
+//    - Classic Radar: the small labels (N E S W, place and range, ring distances) are white; lime blended in.
+//    - Overhead alert: squawk line under the route.
+//    - Ordinary ATC codes show bare ("SQUAWK 2153"); only VFR, GLIDER, fire, rescue, military and emergencies
+//      get a tag.
+//    - Route log: the FlightAware note is no longer cut off ("free was wrong, fixed").
+//    - Settings page (wide screens): Time Zone moved to the left column and cards keep their own height,
+//      so there are no stretched empty gaps.
+//
+//  New in v0.9.45:
+//    - Fix: safety restarts every few minutes on v0.9.44 ("stopped: data, fetching aircraft from adsb.lol").
+//      A request could hold the data part past the 40 s limit: the secure handshake was allowed 120 s, and an
+//      answer that trickled in was read in one go. Now the handshake gets the request's own time limit, the
+//      answer is read in pieces (checking in as it arrives), and the whole request stops after 15 s
+//      (Diagnostic Log: "too slow or cut off").
+//    - The emergency squawk checks use adsb.fi, then airplanes.live, so adsb.lol only gets the board's own
+//      updates (it had started saying "too many requests").
+//    - Diagnostic Log names two more steps if the data part ever stops: "checking the overhead alert" and
+//      "checking emergency squawks".
+//    - Details page on airport screens: the squawk was missing (no room next to "DEPARTING from ATL"). The
+//      squawk now comes first; then "DEPARTING" (or the full "DEPARTING from ATL") if there's room.
+//
+//  New in v0.9.44:
+//    - Better Routes > Full asks FlightAware about every airliner, even when the free route fits; the route log
+//      notes "agreed with free" or "free was wrong, fixed".
+//    - Squawk codes. Emergencies (7700 emergency, 7600 radio failure, 7500 hijack, 7400 drone lost link) pop up a
+//      full screen once per flight (60 s, or any button), then a white-on-black note in the footer while it lasts.
+//      Overhead Alert card > Emergency alerts: Off / Scan area / 50 / 150 / 300 NM from Home. A code must show in
+//      two separate updates first. Special flight tags (FIRE 1255, SAR 1277, MIL 4000/7777) in the airline column.
+//      Every aircraft's details page shows its squawk and what it means (talking to ATC, VFR, glider...).
+//    - Radar LCD style "ATC Data Blocks": square targets with heading lines and three-line tags (callsign,
+//      flight level + speed in tens of knots, type), placed so they don't overlap.
+//    - The notes at the top of this file list the current files and libraries.
 //
 //  New in v0.9.43:
 //    - Better Routes > How much FlightAware: Light (~$5 a month: planes taking off, landing or overhead, spread over
@@ -530,9 +573,9 @@
 //           MENU = refresh, EXIT = first place, hold EXIT 3 s = settings address,
 //           hold MENU 5 s = setup mode
 //
-//  Files in this sketch folder (all needed):
-//    flight_board_v74.ino  qr_code.h  bg_image.h  fonts.h  airports.h  boot_screens.h
-//  Libraries: GxEPD2 (+ Adafruit GFX), ArduinoJson v7
+//  Files in this sketch folder (all needed): flight_board.ino, the tabs 01_helpers.ino ... 22_setup_loop.ino,
+//    airports.cpp/.h, bg_image.cpp/.h, boot_screens.cpp/.h, web_fonts.cpp/.h, fonts.h, qr_code.h
+//  Libraries: GxEPD2 (+ Adafruit GFX), ArduinoJson v7, Adafruit GC9A01A (radar add-on)
 //  Board: "ESP32S3 Dev Module", USB CDC On Boot: Disabled, Flash 8MB,
 //         Partition "8M with spiffs (3MB APP/1.5MB SPIFFS)", PSRAM "OPI PSRAM"
 //  Serial Monitor: 115200 baud
@@ -564,9 +607,9 @@
 #include "bg_image.h"        // page background (Reno sectional chart)
 #include "web_fonts.h"       // fonts for the web pages
 
-const char* FW_VERSION = "0.9.43";        // shown on the boot screens
+const char* FW_VERSION = "0.9.47";        // shown on the boot screens
 // Marks a .bin file as Flight Board firmware: Firmware Update looks for it. Keep the version the same as above.
-const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.43;";
+const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.47;";
 const int  FW_MARK_PRE = 15;              // length of "FLIGHTBOARD-FW:"
 
 // ================= SETTINGS =================
@@ -605,7 +648,7 @@ const int TZ_DEFAULT     = 4;             // Pacific
 int tzIndex = TZ_DEFAULT;
 // (tzRule() is further down: the Arduino IDE puts its made-up function declarations
 //  above the first function in the file, so no function may come before the structs)
-const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.43; +https://volarydynamics.com)";
+const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.47; +https://volarydynamics.com)";
 // ============================================
 
 // ---------- CrowPanel 5.79" pins ----------
@@ -754,6 +797,7 @@ struct Plane {
   int8_t near;          // v0.9.32, Home / other places: 1 = landing at, 2 = taking off from a nearby airport (in from/toCode)
   bool   mil;           // military / DoW: shown as "Secret Squirrel"
   bool   heli;          // v0.9.33: helicopter (ADS-B category A7, or a helicopter type code)
+  int16_t squawk;       // v0.9.44: transponder code as its 4 digits (7700), -1 = not sent
   char   airline[40];   // airline name from adsbdb (any carrier)
 };
 
@@ -796,12 +840,12 @@ const uint32_t FAMEMO_KEEP_MS = 4UL * 3600000UL, FA_RETRY_MS = 180000UL;
 FaMemo* faMemo = nullptr;
 int faMemoNext = 0;
 // v0.9.38: route log, the last route decisions (PSRAM, cleared on restart, no positions)
-struct RLog { time_t t; char cs[9]; char type[6]; int32_t alt; float nm; char freeR[48]; char fa[40]; char shown[24]; };
+struct RLog { time_t t; char cs[9]; char type[6]; int32_t alt; float nm; char freeR[48]; char fa[52]; char shown[24]; };   // v0.9.46: fa 40 -> 52 ("free was wrong, fixed" was cut off)
 const int RLOG_N = 60;
 RLog* rlog = nullptr;
 int rlogNext = 0, rlogCount = 0;
 bool rlogOn = true;                          // "rlo" = 1 turns it off
-char rlFree[48], rlFa[40], fitWhy[28];       // filled while one plane's route is worked out
+char rlFree[48], rlFa[52], fitWhy[28];       // filled while one plane's route is worked out
 void faMemoClear();
 void formatAlt(long a, char* buf, size_t len);
 void rlogText(String& s);
@@ -879,6 +923,28 @@ uint32_t  lastAlertIcao = 0;
 unsigned long lastAlertMs = 0, alertDrawnMs = 0;
 uint32_t  alertsShown = 0;                // since start, for the Diagnostic Log
 
+// ---------- v0.9.44: squawk codes ----------
+int  emergI = 2;                          // "oe": emergency alerts 0 off, 1 scan area, 2 50 NM, 3 150 NM, 4 300 NM
+bool sqTagsOn = true;                     // "ot": FIRE / SAR / MIL tags on the board
+const float EMERG_NM[5] = { 0, 0, 50, 150, 300 };
+const unsigned long EMERG_POLL_MS = 30000;            // one squawk code asked about every 30 s
+const unsigned long EMERG_SHOW_MS = 60000;            // the emergency screen stays this long
+struct Emerg {
+  uint32_t icao; int16_t code; uint8_t hits;          // hits: separate updates it was seen in (2 = confirmed)
+  uint32_t firstMs, lastMs;
+  float homeNm, homeBrg;                              // from Home
+  bool  routed;                                       // route looked up
+  Plane p;
+};
+const int MAX_EMERG = 6;
+Emerg emergShared[MAX_EMERG]; int emergSharedN = 0;   // from the background task (under dataLock)
+volatile uint32_t emergGen = 0;
+Emerg emergCur[MAX_EMERG]; int emergCurN = 0;         // main loop's copy
+Emerg emergShow;                                      // the one on the emergency screen
+uint32_t emergAlerted[8]; int emergAlertedN = 0;      // alerted already (once per flight)
+unsigned long emergShownMs = 0;
+uint32_t emergsShown = 0;
+
 // ---------- Screen state (main loop only) ----------
 Plane    view[MAX_PLANES];
 int      viewCount = 0;
@@ -888,7 +954,7 @@ char     viewUpdated[16] = "--:--";
 int      viewSource = 0;
 uint32_t seenGen = 0;
 
-enum View { V_BOARD, V_DETAIL, V_SETTINGS, V_ALERT };
+enum View { V_BOARD, V_DETAIL, V_SETTINGS, V_ALERT, V_EMERG };   // v0.9.44: V_EMERG
 View     screenView = V_BOARD;
 int      detailIdx = 0;
 char     detailCallsign[9] = "";
@@ -948,8 +1014,8 @@ const uint16_t RADAR_SWEEP_MS = 4000;     // one turn of the sweep
 const uint16_t RADAR_FRAME_MS = 40;       // 25 frames a second at most
 const uint16_t RADAR_GAP_MS   = 4;        // always rest this long between frames (WiFi, web pages, e-paper)
 const uint8_t  RADAR_ROTATION = 0;        // 0-3: turn the picture if the screen is mounted sideways
-const char* RADAR_STYLES[] = { "Off / Not Connected", "Classic Radar", "ATC Scope", "Amber Sweep", "TCAS Traffic" };
-const int   NUM_RADAR_STYLES = 5;
+const char* RADAR_STYLES[] = { "Off / Not Connected", "Classic Radar", "ATC Scope", "Amber Sweep", "TCAS Traffic", "ATC Data Blocks", "Modern TRACON" };
+const int   NUM_RADAR_STYLES = 7;
 const int   RADAR_DEFAULT = 0;            // Off until someone picks a look (and it's saved)
 volatile int radarStyle = RADAR_DEFAULT;
 volatile int radarBright = 100;            // percent: the screen has no backlight control, so colours are drawn darker
@@ -959,7 +1025,7 @@ Adafruit_GC9A01A radarTft(&radarSPI, RADAR_DC, RADAR_CS, -1);   // -1: reset by 
 GFXcanvas16* radarCanvas = nullptr;
 bool radarStarted = false;
 
-struct RadarBlip { char cs[9]; float x, y, gs, trk, dist; long alt; int vs; bool airliner; };   // x east, y north, in NM; vs ft/min
+struct RadarBlip { char cs[9]; char type[5]; float x, y, gs, trk, dist; long alt; int vs; bool airliner; int16_t squawk; uint32_t icao; };   // v0.9.47: icao (round screen)   // v0.9.46: squawk   // v0.9.44: type   // x east, y north, in NM; vs ft/min
 struct RadarSnap {
   RadarBlip b[MAX_PLANES];
   int n, sel;                             // sel = aircraft open on the detail page, or -1
@@ -975,6 +1041,7 @@ struct RadarSnap {
   long  ground;                           // ground height at the place shown, ft (TCAS heights are above this)
   bool  atHome;                           // the board is showing Home (alert: draw the others too)
   int   aIdx;                             // the alert aircraft among b[], or -1
+  struct { char code[5]; float x, y; } ap[6]; int nAp;   // v0.9.46: nearby airports (NM east / north), for Modern TRACON
 };
 RadarSnap radarShared, radarLocal;
 volatile uint32_t radarDrawMs = 0, radarSendMs = 0, radarFrames = 0, radarPeriodMs = 0;   // frame timing (Diagnostic Log)
@@ -1049,7 +1116,7 @@ struct Crumb {
 };
 RTC_NOINIT_ATTR Crumb crumb;
 const uint32_t CRUMB_MAGIC = 0xFB093201;                // changed with the layout, so old notes aren't misread
-enum NetStep  : uint8_t { NS_IDLE, NS_WIFI, NS_LOOKUP, NS_FETCH, NS_ROUTES };
+enum NetStep  : uint8_t { NS_IDLE, NS_WIFI, NS_LOOKUP, NS_FETCH, NS_ROUTES, NS_OVERHEAD, NS_SQUAWK };   // v0.9.45: last two
 enum WebStep  : uint8_t { WS_IDLE, WS_PAGE };
 enum LoopStep : uint8_t { LS_IDLE, LS_DRAW, LS_CLEAN };
 enum RadarStep : uint8_t { RS_IDLE, RS_DRAW };
@@ -1104,6 +1171,7 @@ struct NetStats {
   uint32_t faAsked;                              // v0.9.35: FlightAware lookups since power-on
 };
 const int16_t ERR_GARBLED = 1000;                // "lastErr" for a reply that wasn't valid JSON
+const int16_t ERR_SLOW    = 1001;                // v0.9.45: the answer trickled in too slowly, or was cut off
 volatile int16_t  lastHttpCode = 0;              // from httpGet: HTTP status, or <0 for a client-side error
 volatile uint32_t lastHttpLargest = 0;           // largest free internal block when it failed
 NetStats netStats;

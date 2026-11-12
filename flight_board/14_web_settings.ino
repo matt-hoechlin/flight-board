@@ -66,7 +66,15 @@ void handleSettings() {
        "<p class=hint>Busy airports usually need only <span data-nm=10>" + String(showRadius(10)) + "</span> <span class=un>" + r + "</span>. "
        "Reduce to under <span data-nm=10>" + String(showRadius(10)) + "</span> <span class=un>" + r + "</span> if the radar gets too crowded.</p>";
   b += "<label>Other places (<span class=un>" + r + "</span>)</label>"
-       "<input name=orad id=orad type=number min=3 max=" + mx + " value=\"" + String(showRadius(orad)) + "\"></div></div><div class=scol>";
+       "<input name=orad id=orad type=number min=3 max=" + mx + " value=\"" + String(showRadius(orad)) + "\"></div>";
+  // Time Zone (v0.9.46: in the left column, to even out the two columns)
+  b += F("<div id=c-tz class=card><h2><span class=ic><svg class=i viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.5 2'/></svg></span>Time Zone &amp; Clock</h2><style>.tzr{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center}.tzr select,.tzr .seg{margin:0}@media(max-width:700px){.tzr{grid-template-columns:1fr}}</style><div class=tzr><select name=tz>");
+  for (int i = 0; i < NUM_TIME_ZONES; i++)
+    b += "<option value=" + String(i) + (i == tz ? " selected>" : ">") + TIME_ZONES[i].label + "</option>";
+  b += F("</select>");
+  { const char* t[] = { "12-hour", "24-hour" }; b += segButtons("c24", clock24 ? 1 : 0, t, 2, nullptr, nullptr); }
+  b += F("</div></div>");
+  b += F("</div><div class=scol>");
   // Overhead Alert
   b += F("<div id=c-alert class=card><h2><span class=ic><svg class=i viewBox='0 0 24 24'><path d='M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z'/><path d='M10 20.5a2 2 0 0 0 4 0'/><path d='M12 3v2'/></svg></span>Overhead Alert<span class=remnow id=asum></span></h2>"
          "<p class=hint style=\"margin-top:0\">When an aircraft is about to pass over Your Home, the Flight Board switches to an alert screen "
@@ -83,14 +91,20 @@ void handleSettings() {
   { const char* t[] = { "30 s", "1 min", "2 min" }; b += segButtons("ow", alertWarnI, t, 3, nullptr, nullptr); }
   b += F("<p class=hint>How early the countdown starts before the closest pass.</p>"
          "<p class=hint style=\"margin-bottom:0\">Also shows on the Radar LCD when one is connected. The board goes back to normal "
-         "about 20 seconds after the aircraft passes, or press any button.</p></div>");
-  // Time Zone
-  b += F("<div id=c-tz class=card><h2><span class=ic><svg class=i viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.5 2'/></svg></span>Time Zone &amp; Clock</h2><style>.tzr{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center}.tzr select,.tzr .seg{margin:0}@media(max-width:700px){.tzr{grid-template-columns:1fr}}</style><div class=tzr><select name=tz>");
-  for (int i = 0; i < NUM_TIME_ZONES; i++)
-    b += "<option value=" + String(i) + (i == tz ? " selected>" : ">") + TIME_ZONES[i].label + "</option>";
-  b += F("</select>");
-  { const char* t[] = { "12-hour", "24-hour" }; b += segButtons("c24", clock24 ? 1 : 0, t, 2, nullptr, nullptr); }
-  b += F("</div></div>");
+         "about 20 seconds after the aircraft passes, or press any button.</p>");
+  // v0.9.44: squawk codes
+  b += F("<div class=sqk><label>Emergency alerts</label><div class=s5>");
+  { const char* t[] = { "Off", "Scan area", "50 NM", "150 NM", "300 NM" }; b += segButtons("oe", emergI, t, 5, nullptr, nullptr); }
+  b += F("</div><p class=hint>Any aircraft squawking <b>7700</b> (emergency), <b>7600</b> (radio failure), <b>7500</b> (hijack) or "
+         "<b>7400</b> (drone lost link) within this distance of Home, or on the board with Scan area. Shown once per flight, then "
+         "noted in the footer while it lasts.</p><label>Special flight tags</label>");
+  { const char* t[] = { "On", "Off" }; b += segButtons("ot", sqTagsOn ? 0 : 1, t, 2, nullptr, nullptr); }
+  b += F("<p class=hint style=\"margin-bottom:0\">Labels on the board for firefighting (<b>1255</b>), search and rescue (<b>1277</b>) "
+         "and military (<b>4000</b>, <b>7777</b>) codes. US codes.</p></div></div>"
+         "<style>.sqk{margin-top:16px;padding-top:12px;border-top:1px solid rgba(128,140,155,.25)}"
+         "@media(max-width:600px){.s5 .seg{display:grid;grid-template-columns:repeat(6,1fr)}.s5 .seg label{grid-column:span 2}"
+         ".s5 .seg label:nth-child(n+4){grid-column:span 3}.s5 .seg label:nth-child(-n+3) span{border-bottom:1px solid #999}"
+         "html.dark .s5 .seg label:nth-child(-n+3) span{border-bottom-color:#3b4756}.s5 .seg label:nth-child(4) span{border-left:0}}</style>");
   // Radar LCD Add-On
   b += "<div id=c-lcd class=card><h2><span class=ic><svg class=i viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'/><circle cx='12' cy='12' r='5'/><path d='M12 12l6.3-6.3'/><circle cx='15.5' cy='15' r='1.1' fill='currentColor' stroke='none'/></svg></span>Radar LCD Add-On <span class=hint>(BETA)</span><span class=remnow>" +
        String(rstyle ? RADAR_STYLES[rstyle] : "Off") + "</span></h2>";
@@ -393,6 +407,8 @@ void saveSettings() {
   if (server.hasArg("oa"))    pr.putBool("oa", server.arg("oa") != "1");          // 0 = On, 1 = Off
   if (server.hasArg("od"))    pr.putInt("od", constrain((int)server.arg("od").toInt(), 0, 2));
   if (server.hasArg("oh"))    pr.putInt("oh", constrain((int)server.arg("oh").toInt(), 0, 4));
+  if (server.hasArg("oe"))    pr.putInt("oe", constrain((int)server.arg("oe").toInt(), 0, 4));   // v0.9.44
+  if (server.hasArg("ot"))    pr.putBool("ot", server.arg("ot") != "1");          // 0 = On, 1 = Off
   if (server.hasArg("ow"))    pr.putInt("ow", constrain((int)server.arg("ow").toInt(), 0, 2));
   if (server.hasArg("fal"))   pr.putInt("fal", constrain((int)server.arg("fal").toInt(), 0, 2));   // v0.9.35: Better Routes
   if (server.hasArg("fau"))   pr.putInt("fau", constrain((int)server.arg("fau").toInt(), 0, 3));   // v0.9.38

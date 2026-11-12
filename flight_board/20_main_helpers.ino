@@ -52,7 +52,7 @@ void overheadTick(unsigned long now) {
     if (now - alertDrawnMs >= ALERT_REDRAW_MS) refreshScreen(false);
     return;
   }
-  if (!alertOn || !alertCur.valid || (screenView != V_BOARD && screenView != V_DETAIL)) return;
+  if (!alertOn || !alertCur.valid || (screenView != V_BOARD && screenView != V_DETAIL && screenView != V_EMERG)) return;   // v0.9.44: overhead first
   float secs = alertSecs(now);
   if (secs > ALERT_WARN_S[alertWarnI] || secs < -ALERT_NOW_S) return;
   if (alertCur.p.icao == lastAlertIcao && now - lastAlertMs < ALERT_REPEAT_MS) return;
@@ -63,6 +63,43 @@ void overheadTick(unsigned long now) {
   Serial.printf("Overhead alert: %s\n", alertCur.p.callsign);
   screenView = V_ALERT;
   refreshScreen(false);
+}
+
+// v0.9.44: emergency squawks: the main loop's half
+void emergTick(unsigned long now) {
+  if (emergGen != 0) {
+    static uint32_t seen = 0;
+    if (emergGen != seen) {
+      xSemaphoreTake(dataLock, portMAX_DELAY);
+      seen = emergGen; emergCurN = emergSharedN;
+      memcpy(emergCur, emergShared, sizeof(Emerg) * emergSharedN);
+      xSemaphoreGive(dataLock);
+      for (int i = 0; i < emergCurN; i++) if (emergCur[i].icao == emergShow.icao) emergShow = emergCur[i];   // fresher
+      if (screenView == V_BOARD) refreshScreen(false);         // footer note on or off
+    }
+  }
+  if (screenView == V_EMERG) {
+    bool still = false;
+    for (int i = 0; i < emergCurN; i++) if (emergCur[i].icao == emergShow.icao) still = true;
+    if (!still || !emergI || now - emergShownMs > EMERG_SHOW_MS) endAlert();
+    return;
+  }
+  if (!emergI || (screenView != V_BOARD && screenView != V_DETAIL)) return;
+  for (int i = 0; i < emergCurN; i++) {
+    const Emerg& e = emergCur[i];
+    if (e.hits < 2) continue;
+    bool done = false;
+    for (int k = 0; k < emergAlertedN; k++) if (emergAlerted[k] == e.icao) done = true;
+    if (done) continue;
+    if (emergAlertedN < 8) emergAlerted[emergAlertedN++] = e.icao;
+    else { memmove(emergAlerted, emergAlerted + 1, sizeof(uint32_t) * 7); emergAlerted[7] = e.icao; }
+    emergShow = e; emergShownMs = now; emergsShown++;
+    knobDelta = 0;
+    Serial.printf("Emergency squawk %04d: %s\n", e.code, e.p.callsign);
+    screenView = V_EMERG;
+    refreshScreen(false);
+    return;
+  }
 }
 
 // The screen you were on is saved as its place name, so it still works if places are added or removed

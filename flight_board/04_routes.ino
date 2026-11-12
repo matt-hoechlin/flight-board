@@ -298,7 +298,11 @@ void setLeg(Plane& p, const RouteCache* rc) {
   bool user = faAskCs[0] && !strcmp(faAskCs, p.callsign) && millis() - faAskMs < 120000UL && !rc->fromFa;
   bool urgent = faUrgentCs[0] && !strcmp(faUrgentCs, p.callsign) && millis() - faUrgentMs < 300000UL;   // v0.9.43: overhead alert
   if (user) faAskCs[0] = 0;
-  if (!fitsFree || (user && !w->faTried)) {               // v0.9.34: a route that doesn't match the plane is never shown
+  // v0.9.44: Full asks FlightAware about every airliner, even when the free route fits, and notes whether they agreed
+  bool check = faPlanI == 1 && fitsFree && known && !rc->fromFa && !w->faTried;
+  char freeFrom[5] = "", freeTo[5] = "";
+  if (check) { copyStr(freeFrom, sizeof freeFrom, rc->code[a]); copyStr(freeTo, sizeof freeTo, rc->code[b]); }
+  if (!fitsFree || (user && !w->faTried) || check) {               // v0.9.34: a route that doesn't match the plane is never shown
     bool fixed = false;
     if (!w->faTried) {
       FaMemo* m = faMemoFind(p.callsign);                        // v0.9.38: asked before? use that answer
@@ -325,13 +329,15 @@ void setLeg(Plane& p, const RouteCache* rc) {
           int r = faRouteR(p.callsign, fa);
           FaMemo* mm = faMemoPut(p.callsign);
           if (mm) { mm->tries++; mm->ms = now; }
-          const char* how = again ? "asked again" : retry ? "retry" : user ? "details opened" : urgent ? "overhead alert" : "asked";
+          const char* how = again ? "asked again" : retry ? "retry" : user ? "details opened" : urgent ? "overhead alert" : check ? "checked" : "asked";
           if (r == FA_R_OK) {
             if (mm) { mm->state = FAM_ROUTE; copyStr(mm->from, sizeof mm->from, fa.code[0]); copyStr(mm->to, sizeof mm->to, fa.code[fa.n - 1]); }
             if (fitLeg(fa, p, a, b)) {
+              bool agreed = check && !strcmp(freeFrom, fa.code[0]) && !strcmp(freeTo, fa.code[fa.n - 1]);
               *w = fa; w->faTried = true; fixed = true;
-              faFixed++; faSaveCounts();
-              snprintf(rlFa, sizeof rlFa, "%s: %s -> %s (fixed)", how, fa.code[0], fa.code[fa.n - 1]);
+              if (!agreed) { faFixed++; faSaveCounts(); }
+              snprintf(rlFa, sizeof rlFa, "%s: %s -> %s (%s)", how, fa.code[0], fa.code[fa.n - 1],
+                       agreed ? "agreed with free" : check ? "free was wrong, fixed" : "fixed");
             } else snprintf(rlFa, sizeof rlFa, "%s: %s -> %s, doesn't fit", how, fa.code[0], fa.code[fa.n - 1]);
           } else if (r == FA_R_NOTYET || r == FA_R_ERR) {
             if (mm) mm->state = FAM_NOTYET;

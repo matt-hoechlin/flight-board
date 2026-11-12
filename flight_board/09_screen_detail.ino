@@ -66,15 +66,35 @@ void drawDetail() {
   display.setCursor(14, 142); display.print(line);
   display.setFont(&DV_ROW);
   line[0] = 0;
+  // reg, then the squawk and its meaning (v0.9.44), then on airport screens what it's doing here, if there's room (v0.9.45)
   if (p.reg[0] && strcmp(p.reg, p.callsign) != 0) snprintf(line, sizeof line, "%s", p.reg);
-  if (place.isAirport) {                         // airport screens: what it's doing here
-    size_t n = strlen(line);
-    snprintf(line + n, sizeof line - n, "%s%s %s %s", n ? "   " : "", statusWord(p.status),
-             p.status == ST_ARRIVING ? "at" : p.status == ST_DEPARTING ? "from" : p.status == ST_OVERHEAD ? "above" : "near",
-             place.code);
+  char sq[16] = ""; const char* mean = nullptr; int16_t tagW = 0;
+  if (p.squawk >= 0) {
+    snprintf(sq, sizeof sq, "%sSQUAWK %04d", line[0] ? "   " : "", p.squawk);
+    mean = sqMeaning(p.squawk, nullptr);
+    display.setFont(&DV_SMALL); tagW = mean[0] ? textWidth(mean) + 12 + 8 : 0; display.setFont(&DV_ROW);   // tag + its gap; none for ordinary codes
   }
+  char st[48] = "";
+  if (place.isAirport)
+    snprintf(st, sizeof st, "%s %s %s", statusWord(p.status),
+             p.status == ST_ARRIVING ? "at" : p.status == ST_DEPARTING ? "from" : p.status == ST_OVERHEAD ? "above" : "near", place.code);
+  int16_t used = textWidth(line) + (mean ? textWidth(sq) + tagW : 0);
+  bool stFits = st[0] && used + 12 + textWidth(st) <= LEFT_W;
+  if (st[0] && !mean) { size_t n = strlen(line); snprintf(line + n, sizeof line - n, "%s%s", n ? "   " : "", st); }
   fitWords(line, LEFT_W);
   display.setCursor(14, 166); display.print(line);
+  if (mean && textWidth(line) + textWidth(sq) + tagW <= LEFT_W) {
+    display.print(sq);
+    int16_t after = mean[0] ? drawTag(display.getCursorX() + 8, 166, mean, &DV_SMALL) : display.getCursorX();
+    display.setFont(&DV_ROW);
+    if (stFits) { display.setCursor(after + 12, 166); display.print(st); }
+    else if (st[0] && after + 12 + textWidth(statusWord(p.status)) <= 14 + LEFT_W) {   // no room for "from ATL": the screen already says ATL
+      display.setCursor(after + 12, 166); display.print(statusWord(p.status));
+    }
+  } else if (mean && st[0]) {                    // squawk won't fit next to the reg: keep the old line
+    size_t n = strlen(line); snprintf(line + n, sizeof line - n, "%s%s", n ? "   " : "", st);
+    fitWords(line, LEFT_W); display.setCursor(14, 166); display.print(line);
+  }
 
   // ---- Right: instrument tiles
   formatAlt(showAlt(p.altFt), buf, sizeof buf);

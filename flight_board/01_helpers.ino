@@ -15,6 +15,12 @@ void   buildNetworkOptions(int n, const String& selected);
 void   skyNote(const Plane* list, int n, const Place& place);
 void   noteFetchFail(int s, int16_t code);
 void   checkOverhead(int idx, int count, unsigned long at, int src);
+int    fetchUrl(int s, const String& url, const Place& place, Plane* list);   // v0.9.44
+void   emergFeed(const Plane* list, int n, int idx);
+void   emergPoll(int src);
+const char* sqMeaning(int c, int* level);
+const char* sqTag(int c);
+bool   sqEmergency(int c);
 int    homeIndex();
 long   groundFtNear(double lat, double lon);
 bool   isHomePlace(const Place& p);
@@ -285,9 +291,11 @@ bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiK
   struct PetAfter { ~PetAfter() { wdtPet(); } } petAfter;   // and again when it returns, however it returns
   WiFiClientSecure client;
   client.setInsecure();               // public data, no certificate check
+  client.setHandshakeTimeout((timeoutMs + 999) / 1000);   // v0.9.45: the secure handshake used to be allowed 120 s
   HTTPClient http;
   http.setTimeout(timeoutMs);
   http.setConnectTimeout(timeoutMs);
+  http.useHTTP10(true);               // v0.9.45: one plain body (no chunks), so it can be read in pieces below
   http.setUserAgent(USER_AGENT);
   if (!http.begin(client, url)) {
     lastHttpCode = -100; lastHttpLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
@@ -302,8 +310,35 @@ bool httpGetKey(const String& url, String& body, int timeoutMs, const char* apiK
     http.end();
     return false;
   }
-  body = http.getString();
+  // v0.9.45: read the answer in pieces, checking in as it arrives, with a hard limit on the whole thing.
+  // A server that sends a trickle used to hold the data part past the 40 s safety restart.
+  int len = http.getSize();                          // -1 = not given: read until the server closes
+  if (len > 0) body.reserve(len);
+  auto* st = http.getStreamPtr();
+  uint32_t start = millis(), lastByte = start, limit = (uint32_t)timeoutMs * 2 < 15000 ? 15000 : (uint32_t)timeoutMs * 2;
+  char buf[513];
+  bool ok = st != nullptr;
+  while (ok) {
+    int a = st->available();
+    if (a > 0) {
+      int r = st->readBytes(buf, a < 512 ? a : 512);
+      if (r > 0) { buf[r] = 0; body += buf; lastByte = millis(); }
+      if (len > 0 && (int)body.length() >= len) break;          // all of it
+    } else {
+      if (!st->connected()) break;                               // server finished
+      if (millis() - lastByte > (uint32_t)timeoutMs) ok = false; // went quiet
+      else vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    if (millis() - start > limit) ok = false;                    // too slow overall
+    wdtPet();
+  }
+  if (ok && len > 0 && (int)body.length() < len) ok = false;     // cut off
   http.end();
+  if (!ok) {
+    Serial.printf("  slow/cut-off answer (%u of %d bytes, %lu ms): %s\n", body.length(), len, millis() - start, url.c_str());
+    body = String(); lastHttpCode = ERR_SLOW; lastHttpLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    return false;
+  }
   return true;
 }
 

@@ -298,7 +298,7 @@ void loop() {
     if (screenView == V_BOARD) refreshScreen(false);
   }
 
-  if (screenView == V_ALERT) {             // any button: back to the board
+  if (screenView == V_ALERT || screenView == V_EMERG) {   // any button: back to the board
     if (exitP || pressShort || menu || up || down) { knobDelta = 0; endAlert(); }
   } else if (screenView == V_SETTINGS) {
     if (exitP || pressShort || menu || up || down) { knobDelta = 0; screenView = V_BOARD; refreshScreen(false); }
@@ -331,6 +331,7 @@ void loop() {
     refreshScreen(true);
   }
   overheadTick(millis());
+  emergTick(millis());                    // v0.9.44
   {                                      // tell the radar if anything it shows has changed
     static uint32_t lastSig = 0;
     uint32_t sig = seenGen * 31u + curPlace * 7u + (uint32_t)screenView * 3u + detailIdx * 131u + viewCount * 17u + noPlaces;

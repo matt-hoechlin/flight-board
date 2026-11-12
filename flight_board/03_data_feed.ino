@@ -11,11 +11,14 @@ String sourceUrl(int s, const Place& p) {
 }
 
 // Fills list (closest first, airborne only). Returns -1 on failure, else the plane count.
-int fetchFrom(int s, const Place& place, Plane* list) {
+int fetchFrom(int s, const Place& place, Plane* list) { return fetchUrl(s, sourceUrl(s, place), place, list); }
+
+// v0.9.44: the same for any of the source's lists (e.g. by squawk code); distances are from place
+int fetchUrl(int s, const String& url, const Place& place, Plane* list) {
   String body;
   unsigned long t0 = millis();
   netStats.requests++;
-  if (!httpGet(sourceUrl(s, place), body, 8000)) { noteFetchFail(s, lastHttpCode); return -1; }
+  if (!httpGet(url, body, 8000)) { noteFetchFail(s, lastHttpCode); return -1; }
   netStats.lastMs = millis() - t0; netStats.lastBytes = body.length(); netStats.lastAt = millis(); netStats.lastSource = s;
   Serial.printf("  %s: %d bytes\n", SOURCE_NAMES[s], body.length());
 
@@ -34,6 +37,7 @@ int fetchFrom(int s, const Place& place, Plane* list) {
     filter[name][0]["lon"]       = true;
     filter[name][0]["dbFlags"]   = true;
     filter[name][0]["category"]  = true;     // v0.9.33: A7 = helicopter
+    filter[name][0]["squawk"]    = true;     // v0.9.44
   }
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, body, DeserializationOption::Filter(filter));
@@ -81,6 +85,8 @@ int fetchFrom(int s, const Place& place, Plane* list) {
     { const char* hx = ac["hex"] | ""; if (*hx == '~') hx++; p.icao = strtoul(hx, nullptr, 16); }
     p.mil       = isMilitary(ac["dbFlags"] | 0, p.callsign, p.type);
     p.heli      = strcmp(ac["category"] | "", "A7") == 0 || isHeliType(p.type);
+    { const char* sq = ac["squawk"] | "";                         // v0.9.44: "7700" -> 7700
+      p.squawk = (strlen(sq) == 4 && isdigit((unsigned char)sq[0]) && isdigit((unsigned char)sq[3])) ? (int16_t)atoi(sq) : -1; }
     n++;
   }
   for (int i = 1; i < n; i++) {           // closest first

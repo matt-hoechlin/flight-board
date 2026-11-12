@@ -38,9 +38,15 @@ void drawRowA(const Plane& p, int idx, int16_t y, bool airportMode) {
   if (airportMode) display.print(statusWord(p.status));
   else {
     char al[40];
-    airlineShortFor(p, al, sizeof al);
-    fitWords(al, A_TYPE - A_AIRLINE - 8);
-    display.print(al);
+    const char* tag = nullptr; char sq[6];                     // v0.9.44: squawk tags
+    if (sqEmergency(p.squawk) && emergI && emergConfirmed(p.icao)) { snprintf(sq, sizeof sq, "%04d", p.squawk); tag = sq; }
+    else if (sqTagsOn) tag = sqTag(p.squawk);
+    if (tag) { drawTag(A_AIRLINE, y, tag, &DV_SMALL); display.setFont(&DV_ROW); }
+    else {
+      airlineShortFor(p, al, sizeof al);
+      fitWords(al, A_TYPE - A_AIRLINE - 8);
+      display.print(al);
+    }
   }
   display.setCursor(A_TYPE, y); display.print(p.type[0] ? p.type : "--");   // v0.9.40
   if (p.fits == 1) drawPlaneIcon(A_ICON, y);
@@ -152,9 +158,15 @@ void drawRow(const Plane& p, int16_t y, bool airportMode) {
   if (airportMode) display.print(statusWord(p.status));
   else {
     char al[40];
-    airlineShortFor(p, al, sizeof al);
-    fitWords(al, C_TYPE - C_AIRLINE - 8);
-    display.print(al);
+    const char* tag = nullptr; char sq[6];                     // v0.9.44: squawk tags
+    if (sqEmergency(p.squawk) && emergI && emergConfirmed(p.icao)) { snprintf(sq, sizeof sq, "%04d", p.squawk); tag = sq; }
+    else if (sqTagsOn) tag = sqTag(p.squawk);
+    if (tag) { drawTag(C_AIRLINE, y, tag, &DV_SMALL); display.setFont(&DV_ROW); }
+    else {
+      airlineShortFor(p, al, sizeof al);
+      fitWords(al, C_TYPE - C_AIRLINE - 8);
+      display.print(al);
+    }
   }
 
   display.setCursor(C_TYPE, y);    display.print(p.type[0] ? p.type : "--");   // v0.9.40
@@ -207,6 +219,7 @@ void drawWifiIcon(int16_t x, int16_t y) {
 
 // Draws footer items spread evenly from margin to margin, with a | centred in each gap.
 // If they don't fit, the WiFi name is shortened with "..", and left out if it still won't fit.
+int footerInvert = -1;                     // v0.9.44: this footer item is drawn white on black
 void drawSpreadFooter(char item[][64], int n, int wifiItem, int16_t y) {
   const int16_t W = display.width(), left = 12, right = W - 12, minGap = 22;
   int16_t bx, by; uint16_t bw, bh;
@@ -231,7 +244,10 @@ void drawSpreadFooter(char item[][64], int n, int wifiItem, int16_t y) {
         } else {
           display.setCursor(x, y);
         }
-        display.print(item[i]);
+        if (i == footerInvert) {                               // v0.9.44: white on black
+          display.fillRect(x - 5, y - 14, w[i] + 10, 19, GxEPD_BLACK);
+          display.setTextColor(GxEPD_WHITE); display.print(item[i]); display.setTextColor(GxEPD_BLACK);
+        } else display.print(item[i]);
         x += w[i];
         if (i < n - 1) {
           display.drawFastVLine(x + gap / 2, y - 11, 13, GxEPD_BLACK);   // the | separator
@@ -355,6 +371,8 @@ void drawBoard() {
     if (faOnFor(places[curPlace]))                     // v0.9.39
       snprintf(item[n++], 64, "Source: %s + FlightAware", viewSource == 2 ? "Airplanes" : "ADSB");
     else snprintf(item[n++], 64, "Source: %s", SOURCE_NAMES[viewSource]);
+    int ec; const Emerg* e = emergI ? emergBest(&ec) : nullptr;         // v0.9.44: an emergency squawk nearby
+    if (e) { snprintf(item[n - 1], 64, "! %04d  %s  %.0f %s%s", e->code, e->p.callsign, showDist(e->homeNm), UN.dist, ec > 1 ? "  +1" : ""); footerInvert = n - 1; }
   } else if (viewCount > 0) {
     snprintf(item[n++], 64, "%s", viewStatus);
     snprintf(item[n++], 64, "Shown: %s", viewUpdated);
@@ -368,5 +386,6 @@ void drawBoard() {
   if (date[0]) snprintf(item[n++], 64, "%s", date);
   snprintf(item[n++], 64, "Pg. %d/%d", curPlace + 1, numPlaces);
   drawSpreadFooter(item, n, wifiItem, 260);
+  footerInvert = -1;
 }
 

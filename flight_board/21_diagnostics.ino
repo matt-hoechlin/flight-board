@@ -32,7 +32,8 @@ const char* resetText(uint8_t r, uint8_t planned) {
 
 const char* netStepText(uint8_t s) {
   switch (s) { case NS_WIFI: return "reconnecting WiFi"; case NS_LOOKUP: return "looking up a place";
-               case NS_FETCH: return "fetching aircraft"; case NS_ROUTES: return "looking up routes"; default: return "idle"; }
+               case NS_FETCH: return "fetching aircraft"; case NS_ROUTES: return "looking up routes";
+               case NS_OVERHEAD: return "checking the overhead alert"; case NS_SQUAWK: return "checking emergency squawks"; default: return "idle"; }
 }
 
 // v0.9.32: which part stopped (safety restart), and what it was doing
@@ -41,7 +42,7 @@ String stuckText(const DiagEntry& d) {
   String t;
   switch (d.stuck) {
     case 1 + PET_NET:   t = "data (" + String(netStepText(d.netStep));
-                        if (d.netStep == NS_FETCH) { t += " from "; t += failSrcName(d.netSrc); }
+                        if (d.netStep == NS_FETCH || d.netStep == NS_SQUAWK) { t += " from "; t += failSrcName(d.netSrc); }
                         t += ")"; break;
     case 1 + PET_WEB:   t = d.webStep ? "web page (answering a page)" : "web page (idle)"; break;
     case 1 + PET_RADAR: t = d.radarStep ? "radar LCD (drawing)" : "radar LCD (idle)"; break;
@@ -189,6 +190,7 @@ String failText(int16_t code, uint32_t largest) {
   if (code == 403) return "refused (403)";
   if (code == 404) return "not found (404)";
   if (code == ERR_GARBLED) return "garbled reply";
+  if (code == ERR_SLOW) return "too slow or cut off";
   if (code >= 500 && code < 600) { snprintf(b, sizeof b, "server error (%d)", code); return b; }
   if (code > 0) { snprintf(b, sizeof b, "HTTP %d", code); return b; }
   const char* t;

@@ -417,7 +417,11 @@ void netTask(void*) {
     xSemaphoreGive(dataLock);
 
     // Overhead alert: anything about to pass close over Home? (workList is free again now)
+    if (count > 0 && fetchedIdx >= 0) emergFeed(workList, count, fetchedIdx);           // v0.9.44: squawk codes
+    crumb.netStep = NS_OVERHEAD;
     if (WiFi.status() == WL_CONNECTED && fetchedIdx >= 0) checkOverhead(fetchedIdx, count, fetchedAt, goodSource);
+    crumb.netStep = NS_SQUAWK;
+    emergPoll(goodSource);
   }
 }
 

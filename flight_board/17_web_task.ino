@@ -9,7 +9,10 @@ void webTask(void*) {
   for (;;) {
     wdtPet();
     if (!started && WiFi.status() == WL_CONNECTED) {
-      if (MDNS.begin(hostName.c_str())) MDNS.addService("http", "tcp", 80);
+      if (MDNS.begin(hostName.c_str())) {
+        MDNS.addService("http", "tcp", 80);
+        MDNS.addService("flightboard", "tcp", 80);         // v0.9.47: so a Flight Board Round can find the board by itself
+      }
       server.collectHeaders(FB_HEADERS, 3);
       server.on("/", HTTP_GET, handleRoot);
       server.on("/save", HTTP_POST, handleSave);
@@ -17,6 +20,7 @@ void webTask(void*) {
       server.on("/help", HTTP_GET, handleHelp);
       server.on("/bg.jpg", HTTP_GET, handleBg);
       server.on("/board", HTTP_GET, handleBoard);
+      server.on("/radar.json", HTTP_GET, handleRadarJson);  // v0.9.47: what's on the radar, for a Flight Board Round
       server.on("/clear", HTTP_GET, handleClear);
       server.on("/f/is.woff", HTTP_GET, handleFontIS);
       server.on("/f/isb.woff", HTTP_GET, handleFontISB);

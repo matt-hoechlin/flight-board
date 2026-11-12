@@ -161,6 +161,8 @@ void loadDisplaySettings(Preferences& p) {
   alertDistI  = constrain(p.getInt("od", 1), 0, 2);
   alertBelowI = constrain(p.getInt("oh", 1), 0, 4);
   alertWarnI  = constrain(p.getInt("ow", 1), 0, 2);
+  emergI      = constrain(p.getInt("oe", 2), 0, 4);                // v0.9.44
+  sqTagsOn    = p.getBool("ot", true);
   fetchSeconds = UPD_SECONDS[constrain(p.getInt("upd", 2), 0, 2)];
   { String k = p.getString("fak", "");                         // v0.9.35: Better Routes
     if (strcmp(k.c_str(), faKey) != 0) {                         // a new key: forget a refusal, give mismatched flights another go
