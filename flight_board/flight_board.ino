@@ -1,7 +1,17 @@
 // =====================================================================
-//  Flight Board v0.9.50
+//  Flight Board v0.9.53
 //  Elecrow CrowPanel ESP32-S3 5.79" e-paper (792 x 272, 2x SSD1683)
 //  (c) 2026 Matt Hoechlin
+//
+//  New in v0.9.53: the Scope's overhead alert names the maker for every type ("Airbus A320", not just "A320").
+//
+//  New in v0.9.52: for the Flight Board Scope v0.29: /radar.json says the units setting ("u") and whether the
+//    radar is around Home ("home"); the overhead alert adds the airline's name, the aircraft's name ("Boeing
+//    737-800"), its ICAO hex, and its last reported position (so the Scope draws the path it really flew).
+//
+//  New in v0.9.51: the overhead alert on the Flight Board Scope: while the board shows one, /radar.json carries it
+//    ("al": the aircraft, its route and type, where it is and how it moves, seconds to the closest point), and how
+//    many overhead alerts there have been today. Needs Flight Board Scope v0.28.
 //
 //  New in v0.9.50: Scope pairing fix: the "it worked" reply from the Scope is now a locked word, not an empty message
 //    (the chip refuses to lock an empty one, so the board never heard back). Needs Flight Board Scope v0.26.
@@ -629,9 +639,9 @@ void scopeCard(String& b);
 void scopeRadarPart(String& o);
 void handleScope();
 
-const char* FW_VERSION = "0.9.50";        // shown on the boot screens
+const char* FW_VERSION = "0.9.53";        // shown on the boot screens
 // Marks a .bin file as Flight Board firmware: Firmware Update looks for it. Keep the version the same as above.
-const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.50;";
+const char FW_MARK[] = "FLIGHTBOARD-FW:0.9.53;";
 const int  FW_MARK_PRE = 15;              // length of "FLIGHTBOARD-FW:"
 
 // ================= SETTINGS =================
@@ -670,7 +680,7 @@ const int TZ_DEFAULT     = 4;             // Pacific
 int tzIndex = TZ_DEFAULT;
 // (tzRule() is further down: the Arduino IDE puts its made-up function declarations
 //  above the first function in the file, so no function may come before the structs)
-const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.50; +https://volarydynamics.com)";
+const char* USER_AGENT = "Mozilla/5.0 (compatible; FlightBoard/0.9.53; +https://volarydynamics.com)";
 // ============================================
 
 // ---------- CrowPanel 5.79" pins ----------
@@ -944,6 +954,7 @@ uint32_t  alertSeenGen = 0;
 uint32_t  lastAlertIcao = 0;
 unsigned long lastAlertMs = 0, alertDrawnMs = 0;
 uint32_t  alertsShown = 0;                // since start, for the Diagnostic Log
+int alertsToday = 0, alertsDay = -1;      // v0.9.51: overhead alerts today (the Scope says "3rd overhead today")
 
 // ---------- v0.9.44: squawk codes ----------
 int  emergI = 2;                          // "oe": emergency alerts 0 off, 1 scan area, 2 50 NM, 3 150 NM, 4 300 NM
@@ -1060,6 +1071,9 @@ struct RadarSnap {
   long  aAbove; int aClimb;               // ft above Home when reported, ft/min
   unsigned long aAt;
   char  acs[9];
+  char  afrom[5], ato[5], atype[5];       // v0.9.51: for the Scope's overhead alert
+  float ags, admin; int aToday;
+  char  aair[40], atn[40]; uint32_t aid;  // v0.9.52: airline, "Boeing 737-800", ICAO hex
   long  ground;                           // ground height at the place shown, ft (TCAS heights are above this)
   bool  atHome;                           // the board is showing Home (alert: draw the others too)
   int   aIdx;                             // the alert aircraft among b[], or -1

@@ -59,6 +59,7 @@ void overheadTick(unsigned long now) {
   lastAlertIcao = alertCur.p.icao;
   lastAlertMs = now;
   alertsShown++;
+  { struct tm t; int d = getLocalTime(&t, 0) ? t.tm_yday : -1; if (d != alertsDay) { alertsDay = d; alertsToday = 0; } alertsToday++; }   // v0.9.51
   knobDelta = 0;
   Serial.printf("Overhead alert: %s\n", alertCur.p.callsign);
   screenView = V_ALERT;

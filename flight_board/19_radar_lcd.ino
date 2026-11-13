@@ -75,6 +75,12 @@ void radarPublish(bool newData) {
     s.ax = alertCur.x; s.ay = alertCur.y; s.avx = alertCur.vx; s.avy = alertCur.vy; s.atca = alertCur.tca;
     s.atrk = alertCur.p.track; s.aAbove = alertCur.p.altFt - alertCur.homeFt; s.aClimb = alertCur.p.climbRate;
     s.aAt = alertCur.at; copyStr(s.acs, sizeof s.acs, alertCur.p.callsign);
+    copyStr(s.afrom, sizeof s.afrom, alertCur.p.fromCode); copyStr(s.ato, sizeof s.ato, alertCur.p.toCode);   // v0.9.51: for the Scope
+    copyStr(s.atype, sizeof s.atype, alertCur.p.type); s.ags = alertCur.p.gs; s.admin = alertCur.dmin; s.aToday = alertsToday;
+    copyStr(s.aair, sizeof s.aair, airlineFullFor(alertCur.p)); s.aid = alertCur.p.icao;      // v0.9.52
+    { const char* mk = makerName(alertCur.p.type); const char* md = modelName(alertCur.p.type);
+      if (mk[0] && strcmp(mk, "Military")) snprintf(s.atn, sizeof s.atn, "%s %s", mk, md);   // v0.9.53: "Airbus A320" too
+      else copyStr(s.atn, sizeof s.atn, md); }
   }
   xSemaphoreGive(radarLock);
 }

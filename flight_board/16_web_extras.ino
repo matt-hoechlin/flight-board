@@ -13,10 +13,10 @@ void handleRadarJson() {
   snap = radarShared;
   xSemaphoreGive(radarLock);
   String o; o.reserve(160 + snap.n * 72);
-  char b[160];
+  char b[256];
   String nm = snap.name; nm.replace("\"", "'"); nm.replace("\\", "/");
-  snprintf(b, sizeof b, "{\"v\":1,\"fw\":\"%s\",\"name\":\"%s\",\"range\":%.1f,\"age\":%lu,\"view\":%d,\"sel\":\"",
-           FW_VERSION, nm.c_str(), snap.range, (unsigned long)(millis() - snap.t0), screenView == V_DETAIL ? 1 : 0);
+  snprintf(b, sizeof b, "{\"v\":1,\"fw\":\"%s\",\"name\":\"%s\",\"range\":%.1f,\"age\":%lu,\"view\":%d,\"u\":%d,\"home\":%d,\"sel\":\"",
+           FW_VERSION, nm.c_str(), snap.range, (unsigned long)(millis() - snap.t0), screenView == V_DETAIL ? 1 : 0, unitsMode, snap.atHome ? 1 : 0);
   o += b;
   if (snap.sel >= 0 && snap.sel < snap.n) { snprintf(b, sizeof b, "%06lx", (unsigned long)snap.b[snap.sel].icao); o += b; }
   o += "\",\"ap\":[";
@@ -33,6 +33,22 @@ void handleRadarJson() {
     o += b;
   }
   o += "]";
+  if (snap.alert) {                                              // v0.9.51: the overhead alert on show, as of now
+    float dt = (long)(millis() - snap.aAt) / 1000.0f;
+    String cs = snap.acs; cs.replace("\"", "");
+    snprintf(b, sizeof b, ",\"al\":{\"cs\":\"%s\",\"type\":\"%s\",\"from\":\"%s\",\"to\":\"%s\",", cs.c_str(), snap.atype, snap.afrom, snap.ato);
+    o += b;
+    String air = snap.aair, tn = snap.atn; air.replace("\"", "'"); tn.replace("\"", "'");       // v0.9.52
+    snprintf(b, sizeof b, "\"air\":\"%s\",\"tn\":\"%s\",\"id\":\"%06lx\",\"fx\":%.3f,\"fy\":%.3f,\"fage\":%lu,", air.c_str(), tn.c_str(),
+             (unsigned long)snap.aid, snap.ax, snap.ay, (unsigned long)(millis() - snap.aAt));
+    o += b;
+    snprintf(b, sizeof b, "\"x\":%.3f,\"y\":%.3f,\"vx\":%.5f,\"vy\":%.5f,\"t\":%.1f,\"dmin\":%.2f,", snap.ax + snap.avx * dt, snap.ay + snap.avy * dt,
+             snap.avx, snap.avy, snap.atca - dt, snap.admin);
+    o += b;
+    snprintf(b, sizeof b, "\"above\":%ld,\"climb\":%d,\"gs\":%.0f,\"trk\":%.0f,\"today\":%d}", snap.aAbove + (long)(snap.aClimb * dt / 60), snap.aClimb,
+             snap.ags, snap.atrk, snap.aToday);
+    o += b;
+  }
   scopeRadarPart(o);                                             // v0.9.48: the Scope that's asking: its settings
   o += "}";
   server.sendHeader("Cache-Control", "no-store");
